@@ -3,25 +3,83 @@
 @tailwind utilities;
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --background: #FEF2F2;
+  --foreground: #1A1A2E;
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+    --background: #1A1A2E;
+    --foreground: #F8FAFC;
   }
 }
 
 body {
   color: var(--foreground);
   background: var(--background);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: Inter, system-ui, -apple-system, sans-serif;
 }
 
 @layer utilities {
   .text-balance {
     text-wrap: balance;
   }
+}
+
+/* Snowflake animation */
+.snowflake {
+  position: fixed;
+  top: -10px;
+  z-index: 50;
+  pointer-events: none;
+  font-size: 1rem;
+  opacity: 0.7;
+  animation: snowfall linear infinite;
+}
+
+@keyframes snowfall {
+  0% {
+    transform: translateY(-10vh) rotate(0deg);
+    opacity: 1;
+  }
+  100% {
+    transform: translateY(100vh) rotate(360deg);
+    opacity: 0.2;
+  }
+}
+
+/* Festive gradient backgrounds */
+.festive-gradient {
+  background: linear-gradient(135deg, #DC2626 0%, #991B1B 25%, #065F46 50%, #059669 75%, #D4A843 100%);
+}
+
+.festive-bg-dark {
+  background: linear-gradient(180deg, #1A1A2E 0%, #2D1B1B 50%, #1A2E1A 100%);
+}
+
+/* Card glow effect */
+.card-glow {
+  box-shadow: 0 0 15px rgba(212, 168, 67, 0.1), 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+  transition: box-shadow 0.3s ease;
+}
+
+.card-glow:hover {
+  box-shadow: 0 0 25px rgba(212, 168, 67, 0.2), 0 10px 15px -3px rgba(0, 0, 0, 0.1);
+}
+
+/* Festive button styles */
+.btn-festive {
+  @apply px-6 py-3 rounded-xl font-semibold transition-all duration-300 transform hover:scale-105;
+}
+
+.btn-red {
+  @apply bg-santa-red text-white hover:bg-santa-red-dark;
+}
+
+.btn-green {
+  @apply bg-santa-green text-white hover:bg-santa-green-dark;
+}
+
+.btn-gold {
+  @apply bg-santa-gold text-santa-dark hover:bg-santa-gold-dark;
 }

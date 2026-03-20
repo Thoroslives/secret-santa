@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 
 export default function CreateGroup() {
   const [groupName, setGroupName] = useState("");
@@ -64,18 +65,21 @@ export default function CreateGroup() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-red-50 to-green-50 p-4">
-      <div className="bg-white p-8 rounded-lg shadow-lg w-full max-w-md">
-        <h1 className="text-3xl font-bold text-green-600 mb-2 text-center">
-          Create Your Secret Santa Group
-        </h1>
-        <p className="text-gray-600 mb-6 text-center text-sm">
-          Set up a new Secret Santa event for your family or friends
-        </p>
+    <div className="min-h-screen flex items-center justify-center bg-santa-dark p-4">
+      <div className="bg-[#151528] p-8 rounded-2xl border border-white/10 card-glow w-full max-w-md">
+        <div className="text-center mb-6">
+          <div className="text-4xl mb-3">🎄</div>
+          <h1 className="text-3xl font-bold text-santa-green mb-2 font-display">
+            Create Your Group
+          </h1>
+          <p className="text-gray-400 text-sm">
+            Set up a new Secret Santa event for your family or friends
+          </p>
+        </div>
 
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
-            <label htmlFor="groupName" className="block text-sm font-medium text-gray-700 mb-2">
+            <label htmlFor="groupName" className="block text-sm font-medium text-gray-300 mb-2">
               Group Name
             </label>
             <input
@@ -83,14 +87,14 @@ export default function CreateGroup() {
               id="groupName"
               value={groupName}
               onChange={(e) => setGroupName(e.target.value)}
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent text-gray-900"
+              className="w-full px-4 py-2 bg-santa-dark border border-white/10 rounded-lg focus:ring-2 focus:ring-santa-gold focus:border-transparent text-santa-snow placeholder-gray-500"
               placeholder="Smith Family Secret Santa 2024"
               required
             />
           </div>
 
           <div>
-            <label htmlFor="year" className="block text-sm font-medium text-gray-700 mb-2">
+            <label htmlFor="year" className="block text-sm font-medium text-gray-300 mb-2">
               Year
             </label>
             <input
@@ -98,7 +102,7 @@ export default function CreateGroup() {
               id="year"
               value={year}
               onChange={(e) => setYear(parseInt(e.target.value))}
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent text-gray-900"
+              className="w-full px-4 py-2 bg-santa-dark border border-white/10 rounded-lg focus:ring-2 focus:ring-santa-gold focus:border-transparent text-santa-snow"
               min={2024}
               max={2030}
               required
@@ -106,7 +110,7 @@ export default function CreateGroup() {
           </div>
 
           <div>
-            <label htmlFor="adminPassword" className="block text-sm font-medium text-gray-700 mb-2">
+            <label htmlFor="adminPassword" className="block text-sm font-medium text-gray-300 mb-2">
               Admin Password
             </label>
             <input
@@ -114,7 +118,7 @@ export default function CreateGroup() {
               id="adminPassword"
               value={adminPassword}
               onChange={(e) => setAdminPassword(e.target.value)}
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent text-gray-900"
+              className="w-full px-4 py-2 bg-santa-dark border border-white/10 rounded-lg focus:ring-2 focus:ring-santa-gold focus:border-transparent text-santa-snow placeholder-gray-500"
               placeholder="Minimum 6 characters"
               required
               minLength={6}
@@ -125,7 +129,7 @@ export default function CreateGroup() {
           </div>
 
           <div>
-            <label htmlFor="confirmPassword" className="block text-sm font-medium text-gray-700 mb-2">
+            <label htmlFor="confirmPassword" className="block text-sm font-medium text-gray-300 mb-2">
               Confirm Password
             </label>
             <input
@@ -133,14 +137,14 @@ export default function CreateGroup() {
               id="confirmPassword"
               value={confirmPassword}
               onChange={(e) => setConfirmPassword(e.target.value)}
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent text-gray-900"
+              className="w-full px-4 py-2 bg-santa-dark border border-white/10 rounded-lg focus:ring-2 focus:ring-santa-gold focus:border-transparent text-santa-snow placeholder-gray-500"
               placeholder="Re-enter your password"
               required
             />
           </div>
 
           {error && (
-            <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded">
+            <div className="bg-santa-red/10 border border-santa-red/30 text-santa-red px-4 py-3 rounded-lg">
               {error}
             </div>
           )}
@@ -148,16 +152,16 @@ export default function CreateGroup() {
           <button
             type="submit"
             disabled={loading}
-            className="w-full bg-green-600 text-white py-3 rounded-lg font-semibold hover:bg-green-700 transition disabled:opacity-50 disabled:cursor-not-allowed"
+            className="w-full bg-santa-green text-white py-3 rounded-xl font-semibold hover:bg-santa-green-dark transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed hover:scale-105 transform"
           >
             {loading ? "Creating Group..." : "Create Group"}
           </button>
         </form>
 
         <div className="mt-6 text-center">
-          <a href="/" className="text-sm text-gray-600 hover:text-gray-900">
-            Back to Home
-          </a>
+          <Link href="/" className="text-sm text-gray-400 hover:text-santa-gold transition-colors">
+            &larr; Back to Home
+          </Link>
         </div>
       </div>
     </div>

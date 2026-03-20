@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 
 export default function JoinGroup() {
   const [inviteCode, setInviteCode] = useState("");
@@ -55,19 +56,22 @@ export default function JoinGroup() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-red-50 to-green-50 p-4">
-      <div className="bg-white p-8 rounded-lg shadow-lg w-full max-w-md">
-        <h1 className="text-3xl font-bold text-red-600 mb-2 text-center">
-          Join a Secret Santa Group
-        </h1>
-        <p className="text-gray-600 mb-6 text-center text-sm">
-          Enter the invite code you received
-        </p>
+    <div className="min-h-screen flex items-center justify-center bg-santa-dark p-4">
+      <div className="bg-[#151528] p-8 rounded-2xl border border-white/10 card-glow w-full max-w-md">
+        <div className="text-center mb-6">
+          <div className="text-4xl mb-3">🎁</div>
+          <h1 className="text-3xl font-bold text-santa-red mb-2 font-display">
+            Join a Secret Santa Group
+          </h1>
+          <p className="text-gray-400 text-sm">
+            Enter the invite code you received
+          </p>
+        </div>
 
         {!groupInfo ? (
           <form onSubmit={handleVerifyCode} className="space-y-4">
             <div>
-              <label htmlFor="inviteCode" className="block text-sm font-medium text-gray-700 mb-2">
+              <label htmlFor="inviteCode" className="block text-sm font-medium text-gray-300 mb-2">
                 Group Invite Code
               </label>
               <input
@@ -75,7 +79,7 @@ export default function JoinGroup() {
                 id="inviteCode"
                 value={inviteCode}
                 onChange={(e) => setInviteCode(e.target.value.toUpperCase())}
-                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-transparent text-center font-mono text-2xl tracking-wider text-gray-900"
+                className="w-full px-4 py-3 bg-santa-dark border border-white/10 rounded-lg focus:ring-2 focus:ring-santa-gold focus:border-transparent text-center font-mono text-2xl tracking-wider text-santa-snow"
                 placeholder="XXXXXX"
                 maxLength={6}
                 required
@@ -86,7 +90,7 @@ export default function JoinGroup() {
             </div>
 
             {error && (
-              <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded">
+              <div className="bg-santa-red/10 border border-santa-red/30 text-santa-red px-4 py-3 rounded-lg">
                 {error}
               </div>
             )}
@@ -94,34 +98,34 @@ export default function JoinGroup() {
             <button
               type="submit"
               disabled={loading || inviteCode.length !== 6}
-              className="w-full bg-red-600 text-white py-3 rounded-lg font-semibold hover:bg-red-700 transition disabled:opacity-50 disabled:cursor-not-allowed"
+              className="w-full bg-santa-red text-white py-3 rounded-xl font-semibold hover:bg-santa-red-dark transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed hover:scale-105 transform"
             >
               {loading ? "Verifying..." : "Continue"}
             </button>
           </form>
         ) : (
           <div className="space-y-6">
-            <div className="bg-green-50 border border-green-200 p-4 rounded-lg">
-              <h2 className="font-semibold text-gray-900 mb-1">Group Found!</h2>
-              <p className="text-gray-700">{groupInfo.name}</p>
-              <p className="text-sm text-gray-600">Year: {groupInfo.year}</p>
+            <div className="bg-santa-green/10 border border-santa-green/30 p-4 rounded-lg">
+              <h2 className="font-semibold text-santa-green mb-1">Group Found!</h2>
+              <p className="text-santa-snow">{groupInfo.name}</p>
+              <p className="text-sm text-gray-400">Year: {groupInfo.year}</p>
             </div>
 
             <div className="space-y-3">
-              <p className="text-sm text-gray-700 text-center font-medium">
+              <p className="text-sm text-gray-300 text-center font-medium">
                 How would you like to continue?
               </p>
 
               <button
                 onClick={() => handleProceed("admin")}
-                className="w-full bg-red-600 text-white py-3 rounded-lg font-semibold hover:bg-red-700 transition"
+                className="w-full bg-santa-red text-white py-3 rounded-xl font-semibold hover:bg-santa-red-dark transition-all duration-300 hover:scale-105 transform"
               >
                 Admin Portal
               </button>
 
               <button
                 onClick={() => handleProceed("participant")}
-                className="w-full bg-green-600 text-white py-3 rounded-lg font-semibold hover:bg-green-700 transition"
+                className="w-full bg-santa-green text-white py-3 rounded-xl font-semibold hover:bg-santa-green-dark transition-all duration-300 hover:scale-105 transform"
               >
                 Participant Login
               </button>
@@ -130,9 +134,9 @@ export default function JoinGroup() {
         )}
 
         <div className="mt-6 text-center">
-          <a href="/" className="text-sm text-gray-600 hover:text-gray-900">
-            Back to Home
-          </a>
+          <Link href="/" className="text-sm text-gray-400 hover:text-santa-gold transition-colors">
+            &larr; Back to Home
+          </Link>
         </div>
       </div>
     </div>

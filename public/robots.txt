@@ -3,6 +3,7 @@ Allow: /
 Allow: /create
 Allow: /join
 Allow: /login
+Allow: /pricing
 
 # Disallow sensitive areas
 Disallow: /admin/

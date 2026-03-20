@@ -52,7 +52,7 @@ export function generateMagicToken(data: MagicLinkData): string {
     .update(payloadString)
     .digest('hex');
 
-  return Buffer.from(JSON.stringify({ payload, signature })).toString('base64url');
+  return Buffer.from(JSON.stringify({ payload: payloadString, signature })).toString('base64url');
 }
 
 // Verify magic link token

@@ -2,6 +2,7 @@
 
 import { useEffect, useState, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import Link from "next/link";
 
 function VerifyContent() {
   const [status, setStatus] = useState<"loading" | "success" | "error">("loading");
@@ -50,28 +51,28 @@ function VerifyContent() {
   }, [searchParams, router]);
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-red-50 to-green-50 p-4">
-      <div className="bg-white p-8 rounded-lg shadow-lg w-full max-w-md text-center">
+    <div className="min-h-screen flex items-center justify-center bg-santa-dark p-4">
+      <div className="bg-[#151528] p-8 rounded-2xl border border-white/10 card-glow w-full max-w-md text-center">
         {status === "loading" && (
           <>
             <div className="text-6xl mb-4">🎄</div>
-            <h1 className="text-2xl font-bold text-gray-800 mb-4">
+            <h1 className="text-2xl font-bold text-santa-snow mb-4 font-display">
               Verifying Your Login
             </h1>
             <div className="flex justify-center mb-4">
-              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-green-600"></div>
+              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-santa-gold"></div>
             </div>
-            <p className="text-gray-600">Please wait while we verify your magic link...</p>
+            <p className="text-gray-400">Please wait while we verify your magic link...</p>
           </>
         )}
 
         {status === "success" && (
           <>
-            <div className="text-6xl mb-4">✅</div>
-            <h1 className="text-2xl font-bold text-green-600 mb-4">
+            <div className="text-6xl mb-4">🎅</div>
+            <h1 className="text-2xl font-bold text-santa-green mb-4 font-display">
               Login Successful!
             </h1>
-            <p className="text-gray-600 mb-4">{message}</p>
+            <p className="text-gray-300 mb-4">{message}</p>
             <p className="text-sm text-gray-500">
               Redirecting you to your wishlist...
             </p>
@@ -80,30 +81,30 @@ function VerifyContent() {
 
         {status === "error" && (
           <>
-            <div className="text-6xl mb-4">❌</div>
-            <h1 className="text-2xl font-bold text-red-600 mb-4">
+            <div className="text-6xl mb-4">&#10060;</div>
+            <h1 className="text-2xl font-bold text-santa-red mb-4 font-display">
               Verification Failed
             </h1>
-            <p className="text-gray-600 mb-6">{message}</p>
+            <p className="text-gray-300 mb-6">{message}</p>
 
             <div className="space-y-3">
               <button
                 onClick={() => router.push("/login")}
-                className="w-full bg-green-600 text-white py-2 px-4 rounded-lg hover:bg-green-700 transition"
+                className="w-full bg-santa-green text-white py-2 px-4 rounded-xl hover:bg-santa-green-dark transition-all duration-300 hover:scale-105 transform font-semibold"
               >
                 Try Login Again
               </button>
               <button
                 onClick={() => router.push("/")}
-                className="w-full bg-gray-200 text-gray-800 py-2 px-4 rounded-lg hover:bg-gray-300 transition"
+                className="w-full bg-white/10 text-santa-snow py-2 px-4 rounded-xl hover:bg-white/20 transition border border-white/10"
               >
                 Back to Home
               </button>
             </div>
 
-            <div className="mt-6 p-4 bg-blue-50 rounded-lg text-sm text-blue-800">
+            <div className="mt-6 p-4 bg-santa-gold/10 rounded-lg text-sm text-santa-gold border border-santa-gold/20">
               <p className="font-semibold mb-1">Common issues:</p>
-              <ul className="text-left list-disc list-inside space-y-1">
+              <ul className="text-left list-disc list-inside space-y-1 text-gray-400">
                 <li>Link may have expired (15 minutes limit)</li>
                 <li>Link can only be used once</li>
                 <li>Make sure you clicked the exact link from your email</li>
@@ -119,12 +120,12 @@ function VerifyContent() {
 export default function VerifyMagicLink() {
   return (
     <Suspense fallback={
-      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-red-50 to-green-50 p-4">
-        <div className="bg-white p-8 rounded-lg shadow-lg w-full max-w-md text-center">
+      <div className="min-h-screen flex items-center justify-center bg-santa-dark p-4">
+        <div className="bg-[#151528] p-8 rounded-2xl border border-white/10 card-glow w-full max-w-md text-center">
           <div className="text-6xl mb-4">🎄</div>
-          <h1 className="text-2xl font-bold text-gray-800 mb-4">Loading...</h1>
+          <h1 className="text-2xl font-bold text-santa-snow mb-4 font-display">Loading...</h1>
           <div className="flex justify-center mb-4">
-            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-green-600"></div>
+            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-santa-gold"></div>
           </div>
         </div>
       </div>

@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 
 export default function Login() {
   const [loginCode, setLoginCode] = useState("");
@@ -108,18 +109,21 @@ export default function Login() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-red-50 to-green-50 p-4">
-      <div className="bg-white p-8 rounded-lg shadow-lg w-full max-w-md">
-        <h1 className="text-3xl font-bold text-green-600 mb-2 text-center">Welcome!</h1>
-        {groupName && (
-          <p className="text-gray-700 mb-2 text-center font-semibold">{groupName}</p>
-        )}
-        <p className="text-gray-600 mb-6 text-center text-sm">
-          Choose how you&apos;d like to log in
-        </p>
+    <div className="min-h-screen flex items-center justify-center bg-santa-dark p-4">
+      <div className="bg-[#151528] p-8 rounded-2xl border border-white/10 card-glow w-full max-w-md">
+        <div className="text-center mb-6">
+          <div className="text-4xl mb-3">🎅</div>
+          <h1 className="text-3xl font-bold text-santa-gold mb-2 font-display">Welcome!</h1>
+          {groupName && (
+            <p className="text-santa-snow mb-1 font-semibold">{groupName}</p>
+          )}
+          <p className="text-gray-400 text-sm">
+            Choose how you&apos;d like to log in
+          </p>
+        </div>
 
         {/* Login Method Toggle */}
-        <div className="flex mb-6 bg-gray-100 rounded-lg p-1">
+        <div className="flex mb-6 bg-santa-dark rounded-lg p-1 border border-white/5">
           <button
             type="button"
             onClick={() => {
@@ -129,8 +133,8 @@ export default function Login() {
             }}
             className={`flex-1 py-2 px-4 rounded-md text-sm font-medium transition ${
               loginMethod === "code"
-                ? "bg-white text-green-600 shadow-sm"
-                : "text-gray-600 hover:text-gray-900"
+                ? "bg-[#151528] text-santa-gold shadow-sm border border-santa-gold/20"
+                : "text-gray-400 hover:text-santa-snow"
             }`}
           >
             🔑 Login Code
@@ -144,8 +148,8 @@ export default function Login() {
             }}
             className={`flex-1 py-2 px-4 rounded-md text-sm font-medium transition ${
               loginMethod === "email"
-                ? "bg-white text-green-600 shadow-sm"
-                : "text-gray-600 hover:text-gray-900"
+                ? "bg-[#151528] text-santa-gold shadow-sm border border-santa-gold/20"
+                : "text-gray-400 hover:text-santa-snow"
             }`}
           >
             📧 Email Link
@@ -156,7 +160,7 @@ export default function Login() {
         {loginMethod === "code" && (
           <form onSubmit={handleCodeSubmit} className="space-y-4">
             <div>
-              <label htmlFor="loginCode" className="block text-sm font-medium text-gray-700 mb-2">
+              <label htmlFor="loginCode" className="block text-sm font-medium text-gray-300 mb-2">
                 Login Code
               </label>
               <input
@@ -164,7 +168,7 @@ export default function Login() {
                 id="loginCode"
                 value={loginCode}
                 onChange={(e) => setLoginCode(e.target.value.toUpperCase())}
-                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent text-center font-mono text-2xl tracking-wider text-gray-900"
+                className="w-full px-4 py-3 bg-santa-dark border border-white/10 rounded-lg focus:ring-2 focus:ring-santa-gold focus:border-transparent text-center font-mono text-2xl tracking-wider text-santa-snow"
                 placeholder="XXXXX"
                 maxLength={8}
                 required
@@ -177,7 +181,7 @@ export default function Login() {
             <button
               type="submit"
               disabled={loading || loginCode.length === 0}
-              className="w-full bg-green-600 text-white py-3 rounded-lg font-semibold hover:bg-green-700 transition disabled:opacity-50 disabled:cursor-not-allowed"
+              className="w-full bg-santa-green text-white py-3 rounded-xl font-semibold hover:bg-santa-green-dark transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed hover:scale-105 transform"
             >
               {loading ? "Logging in..." : "Login with Code"}
             </button>
@@ -188,7 +192,7 @@ export default function Login() {
         {loginMethod === "email" && (
           <form onSubmit={handleEmailSubmit} className="space-y-4">
             <div>
-              <label htmlFor="email" className="block text-sm font-medium text-gray-700 mb-2">
+              <label htmlFor="email" className="block text-sm font-medium text-gray-300 mb-2">
                 Email Address
               </label>
               <input
@@ -196,7 +200,7 @@ export default function Login() {
                 id="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent text-gray-900"
+                className="w-full px-4 py-3 bg-santa-dark border border-white/10 rounded-lg focus:ring-2 focus:ring-santa-gold focus:border-transparent text-santa-snow placeholder-gray-500"
                 placeholder="your.email@example.com"
                 required
               />
@@ -208,7 +212,7 @@ export default function Login() {
             <button
               type="submit"
               disabled={emailLoading || email.length === 0}
-              className="w-full bg-blue-600 text-white py-3 rounded-lg font-semibold hover:bg-blue-700 transition disabled:opacity-50 disabled:cursor-not-allowed"
+              className="w-full bg-santa-gold text-santa-dark py-3 rounded-xl font-semibold hover:bg-santa-gold-dark transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed hover:scale-105 transform"
             >
               {emailLoading ? "Sending..." : "Send Magic Link"}
             </button>
@@ -217,27 +221,27 @@ export default function Login() {
 
         {/* Success/Error Messages */}
         {error && (
-          <div className="mt-4 bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded">
+          <div className="mt-4 bg-santa-red/10 border border-santa-red/30 text-santa-red px-4 py-3 rounded-lg">
             {error}
           </div>
         )}
 
         {success && (
-          <div className="mt-4 bg-green-50 border border-green-200 text-green-700 px-4 py-3 rounded">
+          <div className="mt-4 bg-santa-green/10 border border-santa-green/30 text-santa-green px-4 py-3 rounded-lg">
             <div className="flex items-center">
-              <span className="text-green-500 mr-2">✅</span>
+              <span className="text-santa-green mr-2">&#10003;</span>
               {success}
             </div>
-            <p className="text-sm mt-2">
+            <p className="text-sm mt-2 text-gray-400">
               Check your email and click the link to log in. The link expires in 15 minutes.
             </p>
           </div>
         )}
 
         <div className="mt-6 text-center">
-          <a href="/" className="text-sm text-gray-600 hover:text-gray-900">
-            Back to Home
-          </a>
+          <Link href="/" className="text-sm text-gray-400 hover:text-santa-gold transition-colors">
+            &larr; Back to Home
+          </Link>
         </div>
       </div>
     </div>

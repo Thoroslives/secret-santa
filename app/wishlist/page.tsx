@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 
 interface WishlistItem {
   id?: string;
@@ -182,61 +183,61 @@ export default function Wishlist() {
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="text-xl">Loading...</div>
+      <div className="min-h-screen flex items-center justify-center bg-santa-dark">
+        <div className="text-xl text-santa-gold">Loading...</div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-red-50 to-green-50 p-4 md:p-8">
+    <div className="min-h-screen bg-santa-dark p-4 md:p-8">
       <div className="max-w-6xl mx-auto">
         <div className="flex justify-between items-center mb-8">
           <div>
-            <h1 className="text-4xl font-bold text-green-600">Welcome, {personName}!</h1>
-            {groupName && <p className="text-gray-700 mt-1">{groupName}</p>}
-            <p className="text-gray-600 mt-1 text-sm">Manage your wishlist and Secret Santa assignment</p>
+            <h1 className="text-4xl font-bold text-santa-gold font-display">Welcome, {personName}!</h1>
+            {groupName && <p className="text-gray-300 mt-1">{groupName}</p>}
+            <p className="text-gray-400 mt-1 text-sm">Manage your wishlist and Secret Santa assignment</p>
             {budget && (
-              <div className="mt-2 inline-flex items-center bg-blue-50 border border-blue-200 text-blue-800 px-3 py-1 rounded-lg text-sm font-medium">
+              <div className="mt-2 inline-flex items-center bg-santa-gold/10 border border-santa-gold/30 text-santa-gold px-3 py-1 rounded-lg text-sm font-medium">
                 💰 Gift Budget: {budget.currency} {budget.amount}
               </div>
             )}
           </div>
           <button
             onClick={handleLogout}
-            className="bg-gray-600 text-white px-4 py-2 rounded-lg hover:bg-gray-700 transition"
+            className="bg-white/10 text-santa-snow px-4 py-2 rounded-lg hover:bg-white/20 transition border border-white/10"
           >
             Logout
           </button>
         </div>
 
         {error && (
-          <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded mb-4">
+          <div className="bg-santa-red/10 border border-santa-red/30 text-santa-red px-4 py-3 rounded-lg mb-4">
             {error}
           </div>
         )}
 
         {successMessage && (
-          <div className="bg-green-50 border border-green-200 text-green-700 px-4 py-3 rounded mb-4">
+          <div className="bg-santa-green/10 border border-santa-green/30 text-santa-green px-4 py-3 rounded-lg mb-4">
             {successMessage}
           </div>
         )}
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
           {/* My Wishlist */}
-          <div className="bg-white p-6 rounded-lg shadow-lg">
-            <h2 className="text-2xl font-bold text-gray-800 mb-4">My Wishlist</h2>
-            <p className="text-sm text-gray-600 mb-4">Add 1-5 items you&apos;d like to receive</p>
+          <div className="bg-[#151528] p-6 rounded-2xl border border-white/10 card-glow">
+            <h2 className="text-2xl font-bold text-santa-snow mb-4">My Wishlist</h2>
+            <p className="text-sm text-gray-400 mb-4">Add 1-5 items you&apos;d like to receive</p>
 
             <div className="space-y-4">
               {items.map((item, index) => (
-                <div key={index} className="border border-gray-200 p-4 rounded-lg">
+                <div key={index} className="border border-white/10 p-4 rounded-lg bg-santa-dark/50">
                   <div className="flex justify-between items-center mb-2">
-                    <span className="text-sm font-medium text-gray-700">Item {index + 1}</span>
+                    <span className="text-sm font-medium text-santa-gold">Item {index + 1}</span>
                     {items.length > 1 && (
                       <button
                         onClick={() => handleRemoveItem(index)}
-                        className="text-red-600 text-sm hover:text-red-800"
+                        className="text-santa-red text-sm hover:text-santa-red-dark"
                       >
                         Remove
                       </button>
@@ -249,14 +250,14 @@ export default function Wishlist() {
                       value={item.title}
                       onChange={(e) => handleItemChange(index, "title", e.target.value)}
                       placeholder="Item name"
-                      className="w-full px-3 py-2 border border-gray-300 rounded focus:ring-2 focus:ring-green-500 focus:border-transparent text-gray-900"
+                      className="w-full px-3 py-2 bg-santa-dark border border-white/10 rounded focus:ring-2 focus:ring-santa-gold focus:border-transparent text-santa-snow placeholder-gray-500"
                     />
                     <input
                       type="url"
                       value={item.link}
                       onChange={(e) => handleItemChange(index, "link", e.target.value)}
                       placeholder="https://example.com/product"
-                      className="w-full px-3 py-2 border border-gray-300 rounded focus:ring-2 focus:ring-green-500 focus:border-transparent text-gray-900"
+                      className="w-full px-3 py-2 bg-santa-dark border border-white/10 rounded focus:ring-2 focus:ring-santa-gold focus:border-transparent text-santa-snow placeholder-gray-500"
                     />
                   </div>
                 </div>
@@ -265,7 +266,7 @@ export default function Wishlist() {
               {items.length < 5 && (
                 <button
                   onClick={handleAddItem}
-                  className="w-full py-2 border-2 border-dashed border-gray-300 rounded-lg text-gray-600 hover:border-green-500 hover:text-green-600 transition"
+                  className="w-full py-2 border-2 border-dashed border-white/10 rounded-lg text-gray-400 hover:border-santa-gold hover:text-santa-gold transition"
                 >
                   + Add Item
                 </button>
@@ -274,7 +275,7 @@ export default function Wishlist() {
               <button
                 onClick={handleSaveWishlist}
                 disabled={saving}
-                className="w-full bg-green-600 text-white py-3 rounded-lg font-semibold hover:bg-green-700 transition disabled:opacity-50 disabled:cursor-not-allowed"
+                className="w-full bg-santa-green text-white py-3 rounded-xl font-semibold hover:bg-santa-green-dark transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed hover:scale-105 transform"
               >
                 {saving ? "Saving..." : "Save Wishlist"}
               </button>
@@ -282,31 +283,31 @@ export default function Wishlist() {
           </div>
 
           {/* Secret Santa Assignment */}
-          <div className="bg-white p-6 rounded-lg shadow-lg">
-            <h2 className="text-2xl font-bold text-gray-800 mb-4">Your Secret Santa</h2>
+          <div className="bg-[#151528] p-6 rounded-2xl border border-white/10 card-glow">
+            <h2 className="text-2xl font-bold text-santa-snow mb-4">Your Secret Santa</h2>
 
             {assignment ? (
               <div>
-                <p className="text-lg mb-4 text-gray-900">
+                <p className="text-lg mb-4 text-santa-snow">
                   You are Secret Santa for:{" "}
-                  <span className="font-bold text-red-600">{assignment.receiver.name}</span>
+                  <span className="font-bold text-santa-red">{assignment.receiver.name}</span>
                 </p>
 
-                <div className="bg-red-50 p-4 rounded-lg">
-                  <h3 className="font-semibold text-gray-900 mb-3">
+                <div className="bg-santa-red/10 border border-santa-red/20 p-4 rounded-lg">
+                  <h3 className="font-semibold text-santa-snow mb-3">
                     {assignment.receiver.name}&apos;s Wishlist:
                   </h3>
 
                   {assignment.receiver.wishlistItems.length > 0 ? (
                     <ul className="space-y-3">
                       {assignment.receiver.wishlistItems.map((item, index) => (
-                        <li key={index} className="border-b border-red-100 pb-2 last:border-0">
-                          <div className="font-medium text-gray-900">{item.title}</div>
+                        <li key={index} className="border-b border-white/5 pb-2 last:border-0">
+                          <div className="font-medium text-santa-snow">{item.title}</div>
                           <a
                             href={item.link}
                             target="_blank"
                             rel="noopener noreferrer"
-                            className="text-sm text-blue-600 hover:underline break-all"
+                            className="text-sm text-santa-gold hover:underline break-all"
                           >
                             {item.link}
                           </a>
@@ -314,7 +315,7 @@ export default function Wishlist() {
                       ))}
                     </ul>
                   ) : (
-                    <p className="text-gray-700 italic">
+                    <p className="text-gray-400 italic">
                       {assignment.receiver.name} hasn&apos;t added their wishlist yet. Check back later!
                     </p>
                   )}
@@ -323,10 +324,10 @@ export default function Wishlist() {
             ) : (
               <div className="text-center py-8">
                 <div className="text-6xl mb-4">🎁</div>
-                <p className="text-gray-900">
+                <p className="text-santa-snow">
                   Secret Santa assignments haven&apos;t been generated yet.
                 </p>
-                <p className="text-sm text-gray-700 mt-2">
+                <p className="text-sm text-gray-400 mt-2">
                   Check back later or contact the admin!
                 </p>
               </div>

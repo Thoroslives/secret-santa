@@ -16,17 +16,21 @@ datasource db {
 
 // A group represents a Secret Santa event (e.g., "Smith Family 2024")
 model Group {
-  id          String   @id @default(cuid())
-  name        String   // "Smith Family Secret Santa 2024"
-  inviteCode  String   @unique  // Unique code for people to join this group
-  year        Int      @default(2024)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id             String   @id @default(cuid())
+  name           String   // "Smith Family Secret Santa 2024"
+  inviteCode     String   @unique  // Unique code for people to join this group
+  year           Int      @default(2024)
+  plan           String   @default("free") // free, plus, pro
+  budgetAmount   Float?   // Optional budget amount
+  budgetCurrency String   @default("USD") // Currency code
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
 
   // Relations
-  people      Person[]
-  assignments Assignment[]
-  adminConfig AdminConfig?
+  people       Person[]
+  assignments  Assignment[]
+  adminConfig  AdminConfig?
+  subscription Subscription?
 }
 
 model Person {
@@ -87,4 +91,21 @@ model AdminConfig {
   updatedAt      DateTime @updatedAt
 
   group Group @relation(fields: [groupId], references: [id], onDelete: Cascade)
+}
+
+model Subscription {
+  id                     String    @id @default(cuid())
+  groupId                String    @unique
+  stripeCustomerId       String?
+  stripeSubscriptionId   String?   @unique
+  plan                   String    @default("free") // free, plus, pro
+  status                 String    @default("active") // active, canceled, past_due, unpaid
+  currentPeriodEnd       DateTime?
+  createdAt              DateTime  @default(now())
+  updatedAt              DateTime  @updatedAt
+
+  group Group @relation(fields: [groupId], references: [id], onDelete: Cascade)
+
+  @@index([stripeCustomerId])
+  @@index([stripeSubscriptionId])
 }

@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 
 interface Person {
   id: string;
@@ -247,73 +248,73 @@ export default function AdminDashboard() {
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="text-xl">Loading...</div>
+      <div className="min-h-screen flex items-center justify-center bg-santa-dark">
+        <div className="text-xl text-santa-gold">Loading...</div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-red-50 to-green-50 p-8">
+    <div className="min-h-screen bg-santa-dark p-4 md:p-8">
       <div className="max-w-7xl mx-auto">
         <div className="flex justify-between items-center mb-8">
           <div>
-            <h1 className="text-4xl font-bold text-red-600">Admin Dashboard</h1>
-            <p className="text-gray-600 mt-1">{groupInfo.name}</p>
-            <p className="text-sm text-gray-500">
-              Invite Code: <code className="bg-gray-100 px-2 py-1 rounded font-mono text-gray-900">{groupInfo.inviteCode}</code>
+            <h1 className="text-4xl font-bold text-santa-red font-display">Admin Dashboard</h1>
+            <p className="text-gray-300 mt-1">{groupInfo.name}</p>
+            <p className="text-sm text-gray-400">
+              Invite Code: <code className="bg-santa-dark border border-white/10 px-2 py-1 rounded font-mono text-santa-gold">{groupInfo.inviteCode}</code>
             </p>
           </div>
           <button
             onClick={handleLogout}
-            className="bg-gray-600 text-white px-4 py-2 rounded-lg hover:bg-gray-700 transition"
+            className="bg-white/10 text-santa-snow px-4 py-2 rounded-lg hover:bg-white/20 transition border border-white/10"
           >
             Logout
           </button>
         </div>
 
         {error && (
-          <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded mb-4">
+          <div className="bg-santa-red/10 border border-santa-red/30 text-santa-red px-4 py-3 rounded-lg mb-4">
             {error}
           </div>
         )}
 
         {successMessage && (
-          <div className="bg-green-50 border border-green-200 text-green-700 px-4 py-3 rounded mb-4">
+          <div className="bg-santa-green/10 border border-santa-green/30 text-santa-green px-4 py-3 rounded-lg mb-4">
             {successMessage}
           </div>
         )}
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
           {/* Add Person Section */}
-          <div className="bg-white p-6 rounded-lg shadow-lg">
-            <h2 className="text-2xl font-bold text-gray-800 mb-4">Add Person</h2>
+          <div className="bg-[#151528] p-6 rounded-2xl border border-white/10 card-glow">
+            <h2 className="text-2xl font-bold text-santa-snow mb-4">Add Person</h2>
             <form onSubmit={handleAddPerson} className="space-y-4">
               <div>
-                <label htmlFor="name" className="block text-sm font-medium text-gray-700 mb-2">
-                  Name <span className="text-red-500">*</span>
+                <label htmlFor="name" className="block text-sm font-medium text-gray-300 mb-2">
+                  Name <span className="text-santa-red">*</span>
                 </label>
                 <input
                   type="text"
                   id="name"
                   value={newPersonName}
                   onChange={(e) => setNewPersonName(e.target.value)}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent text-gray-900"
+                  className="w-full px-4 py-2 bg-santa-dark border border-white/10 rounded-lg focus:ring-2 focus:ring-santa-gold focus:border-transparent text-santa-snow placeholder-gray-500"
                   placeholder="Enter person's name"
                   required
                 />
               </div>
 
               <div>
-                <label htmlFor="email" className="block text-sm font-medium text-gray-700 mb-2">
-                  Email <span className="text-gray-400">(optional)</span>
+                <label htmlFor="email" className="block text-sm font-medium text-gray-300 mb-2">
+                  Email <span className="text-gray-500">(optional)</span>
                 </label>
                 <input
                   type="email"
                   id="email"
                   value={newPersonEmail}
                   onChange={(e) => setNewPersonEmail(e.target.value)}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent text-gray-900"
+                  className="w-full px-4 py-2 bg-santa-dark border border-white/10 rounded-lg focus:ring-2 focus:ring-santa-gold focus:border-transparent text-santa-snow placeholder-gray-500"
                   placeholder="person@example.com"
                 />
                 <p className="text-xs text-gray-500 mt-1">
@@ -323,7 +324,7 @@ export default function AdminDashboard() {
 
               <button
                 type="submit"
-                className="w-full bg-green-600 text-white py-2 rounded-lg font-semibold hover:bg-green-700 transition"
+                className="w-full bg-santa-green text-white py-2 rounded-xl font-semibold hover:bg-santa-green-dark transition-all duration-300 hover:scale-105 transform"
               >
                 Add Person
               </button>
@@ -331,19 +332,19 @@ export default function AdminDashboard() {
           </div>
 
           {/* Budget Management */}
-          <div className="bg-white p-6 rounded-lg shadow-lg">
-            <h2 className="text-2xl font-bold text-gray-800 mb-4">Gift Budget</h2>
+          <div className="bg-[#151528] p-6 rounded-2xl border border-white/10 card-glow">
+            <h2 className="text-2xl font-bold text-santa-snow mb-4">Gift Budget</h2>
             <form onSubmit={handleUpdateBudget} className="space-y-4">
               <div>
-                <label htmlFor="budgetAmount" className="block text-sm font-medium text-gray-700 mb-2">
-                  Budget Amount <span className="text-gray-400">(optional)</span>
+                <label htmlFor="budgetAmount" className="block text-sm font-medium text-gray-300 mb-2">
+                  Budget Amount <span className="text-gray-500">(optional)</span>
                 </label>
                 <input
                   type="number"
                   id="budgetAmount"
                   value={budgetAmount}
                   onChange={(e) => setBudgetAmount(e.target.value)}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent text-gray-900"
+                  className="w-full px-4 py-2 bg-santa-dark border border-white/10 rounded-lg focus:ring-2 focus:ring-santa-gold focus:border-transparent text-santa-snow placeholder-gray-500"
                   placeholder="50.00"
                   step="0.01"
                   min="0"
@@ -351,14 +352,14 @@ export default function AdminDashboard() {
               </div>
 
               <div>
-                <label htmlFor="budgetCurrency" className="block text-sm font-medium text-gray-700 mb-2">
+                <label htmlFor="budgetCurrency" className="block text-sm font-medium text-gray-300 mb-2">
                   Currency
                 </label>
                 <select
                   id="budgetCurrency"
                   value={budgetCurrency}
                   onChange={(e) => setBudgetCurrency(e.target.value)}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent text-gray-900"
+                  className="w-full px-4 py-2 bg-santa-dark border border-white/10 rounded-lg focus:ring-2 focus:ring-santa-gold focus:border-transparent text-santa-snow"
                 >
                   <option value="USD">USD - US Dollar</option>
                   <option value="EUR">EUR - Euro</option>
@@ -381,9 +382,9 @@ export default function AdminDashboard() {
                 </select>
               </div>
 
-              <div className="text-sm text-gray-600">
+              <div className="text-sm text-gray-400">
                 {budget.budgetAmount ? (
-                  <p>Current budget: <span className="font-semibold">{budget.budgetCurrency} {budget.budgetAmount}</span></p>
+                  <p>Current budget: <span className="font-semibold text-santa-gold">{budget.budgetCurrency} {budget.budgetAmount}</span></p>
                 ) : (
                   <p className="italic">No budget set</p>
                 )}
@@ -391,7 +392,7 @@ export default function AdminDashboard() {
 
               <button
                 type="submit"
-                className="w-full bg-blue-600 text-white py-2 rounded-lg font-semibold hover:bg-blue-700 transition"
+                className="w-full bg-santa-gold text-santa-dark py-2 rounded-xl font-semibold hover:bg-santa-gold-dark transition-all duration-300 hover:scale-105 transform"
               >
                 Update Budget
               </button>
@@ -399,83 +400,83 @@ export default function AdminDashboard() {
           </div>
 
           {/* Secret Santa Assignments */}
-          <div className="bg-white p-6 rounded-lg shadow-lg">
-            <h2 className="text-2xl font-bold text-gray-800 mb-4">Secret Santa</h2>
+          <div className="bg-[#151528] p-6 rounded-2xl border border-white/10 card-glow">
+            <h2 className="text-2xl font-bold text-santa-snow mb-4">Secret Santa</h2>
             <div className="space-y-4">
-              <p className="text-gray-600">
+              <p className="text-gray-400">
                 {people.length} people registered
-                {assignments.length > 0 && ` • ${assignments.length} assignments created`}
+                {assignments.length > 0 && ` \u2022 ${assignments.length} assignments created`}
               </p>
               {assignments.length === 0 ? (
                 <button
                   onClick={handleGenerateAssignments}
                   disabled={people.length < 3}
-                  className="w-full bg-red-600 text-white py-2 rounded-lg font-semibold hover:bg-red-700 transition disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="w-full bg-santa-red text-white py-2 rounded-xl font-semibold hover:bg-santa-red-dark transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed hover:scale-105 transform"
                 >
                   Generate Assignments
                 </button>
               ) : (
                 <button
                   onClick={handleDeleteAssignments}
-                  className="w-full bg-orange-600 text-white py-2 rounded-lg font-semibold hover:bg-orange-700 transition"
+                  className="w-full bg-santa-gold text-santa-dark py-2 rounded-xl font-semibold hover:bg-santa-gold-dark transition-all duration-300 hover:scale-105 transform"
                 >
-                  Delete & Regenerate
+                  Delete &amp; Regenerate
                 </button>
               )}
               {people.length < 3 && (
-                <p className="text-sm text-red-600">Need at least 3 people to generate assignments</p>
+                <p className="text-sm text-santa-red">Need at least 3 people to generate assignments</p>
               )}
             </div>
           </div>
         </div>
 
         {/* People List */}
-        <div className="mt-8 bg-white p-6 rounded-lg shadow-lg">
-          <h2 className="text-2xl font-bold text-gray-800 mb-4">People ({people.length})</h2>
+        <div className="mt-8 bg-[#151528] p-6 rounded-2xl border border-white/10 card-glow">
+          <h2 className="text-2xl font-bold text-santa-snow mb-4">People ({people.length})</h2>
           {people.length === 0 ? (
-            <p className="text-gray-600">No people added yet. Add your first person above!</p>
+            <p className="text-gray-400">No people added yet. Add your first person above!</p>
           ) : (
             <div className="overflow-x-auto">
               <table className="w-full">
                 <thead>
-                  <tr className="border-b">
-                    <th className="text-left py-3 px-4 text-gray-900">Name</th>
-                    <th className="text-left py-3 px-4 text-gray-900">Email</th>
-                    <th className="text-left py-3 px-4 text-gray-900">Login Code</th>
-                    <th className="text-left py-3 px-4 text-gray-900">Wishlist Items</th>
-                    <th className="text-left py-3 px-4 text-gray-900">Actions</th>
+                  <tr className="border-b border-white/10">
+                    <th className="text-left py-3 px-4 text-santa-gold text-sm">Name</th>
+                    <th className="text-left py-3 px-4 text-santa-gold text-sm">Email</th>
+                    <th className="text-left py-3 px-4 text-santa-gold text-sm">Login Code</th>
+                    <th className="text-left py-3 px-4 text-santa-gold text-sm">Wishlist Items</th>
+                    <th className="text-left py-3 px-4 text-santa-gold text-sm">Actions</th>
                   </tr>
                 </thead>
                 <tbody>
                   {people.map((person) => (
-                    <tr key={person.id} className="border-b hover:bg-gray-50">
-                      <td className="py-3 px-4 text-gray-900">{person.name}</td>
+                    <tr key={person.id} className="border-b border-white/5 hover:bg-white/5">
+                      <td className="py-3 px-4 text-santa-snow">{person.name}</td>
                       <td className="py-3 px-4">
                         {person.email ? (
                           <div className="flex items-center gap-2">
-                            <span className="text-gray-900 text-sm">{person.email}</span>
-                            <span className="bg-blue-100 text-blue-800 text-xs px-2 py-1 rounded-full font-semibold">
-                              📧 Magic Link
+                            <span className="text-gray-300 text-sm">{person.email}</span>
+                            <span className="bg-santa-gold/10 text-santa-gold text-xs px-2 py-1 rounded-full font-semibold border border-santa-gold/20">
+                              Magic Link
                             </span>
                           </div>
                         ) : (
-                          <span className="text-gray-400 text-sm italic">No email</span>
+                          <span className="text-gray-500 text-sm italic">No email</span>
                         )}
                       </td>
                       <td className="py-3 px-4">
-                        <code className="bg-gray-100 px-2 py-1 rounded font-mono text-gray-900">
+                        <code className="bg-santa-dark border border-white/10 px-2 py-1 rounded font-mono text-santa-gold text-sm">
                           {person.loginCode}
                         </code>
                       </td>
                       <td className="py-3 px-4">
                         <div className="flex items-center gap-2">
-                          <span className="text-gray-900">{person._count.wishlistItems} / 5</span>
+                          <span className="text-santa-snow">{person._count.wishlistItems} / 5</span>
                           {person._count.wishlistItems > 0 ? (
-                            <span className="bg-green-100 text-green-800 text-xs px-2 py-1 rounded-full font-semibold">
-                              ✓ Saved
+                            <span className="bg-santa-green/10 text-santa-green text-xs px-2 py-1 rounded-full font-semibold border border-santa-green/20">
+                              Saved
                             </span>
                           ) : (
-                            <span className="bg-gray-100 text-gray-600 text-xs px-2 py-1 rounded-full">
+                            <span className="bg-white/5 text-gray-500 text-xs px-2 py-1 rounded-full border border-white/10">
                               Not saved
                             </span>
                           )}
@@ -484,7 +485,7 @@ export default function AdminDashboard() {
                       <td className="py-3 px-4">
                         <button
                           onClick={() => handleDeletePerson(person.id, person.name)}
-                          className="text-red-600 hover:text-red-800 font-semibold"
+                          className="text-santa-red hover:text-santa-red-dark font-semibold text-sm"
                         >
                           Delete
                         </button>
@@ -499,25 +500,25 @@ export default function AdminDashboard() {
 
         {/* Assignments List */}
         {assignments.length > 0 && (
-          <div className="mt-8 bg-white p-6 rounded-lg shadow-lg">
-            <h2 className="text-2xl font-bold text-gray-800 mb-4">
+          <div className="mt-8 bg-[#151528] p-6 rounded-2xl border border-white/10 card-glow">
+            <h2 className="text-2xl font-bold text-santa-snow mb-4">
               Assignments ({assignments.length})
             </h2>
             <div className="overflow-x-auto">
               <table className="w-full">
                 <thead>
-                  <tr className="border-b">
-                    <th className="text-left py-3 px-4 text-gray-900">Giver</th>
-                    <th className="text-left py-3 px-4 text-gray-900">Receiver</th>
-                    <th className="text-left py-3 px-4 text-gray-900">Wishlist Status</th>
+                  <tr className="border-b border-white/10">
+                    <th className="text-left py-3 px-4 text-santa-gold text-sm">Giver</th>
+                    <th className="text-left py-3 px-4 text-santa-gold text-sm">Receiver</th>
+                    <th className="text-left py-3 px-4 text-santa-gold text-sm">Wishlist Status</th>
                   </tr>
                 </thead>
                 <tbody>
                   {assignments.map((assignment) => (
-                    <tr key={assignment.id} className="border-b hover:bg-gray-50">
-                      <td className="py-3 px-4 text-gray-900">{assignment.giver.name}</td>
-                      <td className="py-3 px-4 text-gray-900">{assignment.receiver.name}</td>
-                      <td className="py-3 px-4 text-gray-900">
+                    <tr key={assignment.id} className="border-b border-white/5 hover:bg-white/5">
+                      <td className="py-3 px-4 text-santa-snow">{assignment.giver.name}</td>
+                      <td className="py-3 px-4 text-santa-snow">{assignment.receiver.name}</td>
+                      <td className="py-3 px-4 text-gray-400">
                         {assignment.receiver.wishlistItems.length} items
                       </td>
                     </tr>
