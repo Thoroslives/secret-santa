@@ -192,20 +192,20 @@ export default function Wishlist() {
   return (
     <div className="min-h-screen bg-santa-dark p-4 md:p-8">
       <div className="max-w-6xl mx-auto">
-        <div className="flex justify-between items-center mb-8">
-          <div>
-            <h1 className="text-4xl font-bold text-santa-gold font-display">Welcome, {personName}!</h1>
-            {groupName && <p className="text-gray-300 mt-1">{groupName}</p>}
+        <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4 mb-8">
+          <div className="min-w-0">
+            <h1 className="text-2xl sm:text-4xl font-bold text-santa-gold font-display truncate">Welcome, {personName}!</h1>
+            {groupName && <p className="text-gray-300 mt-1 text-sm sm:text-base truncate">{groupName}</p>}
             <p className="text-gray-400 mt-1 text-sm">Manage your wishlist and Secret Santa assignment</p>
             {budget && (
               <div className="mt-2 inline-flex items-center bg-santa-gold/10 border border-santa-gold/30 text-santa-gold px-3 py-1 rounded-lg text-sm font-medium">
-                💰 Gift Budget: {budget.currency} {budget.amount}
+                💰 Budget: {budget.currency} {budget.amount}
               </div>
             )}
           </div>
           <button
             onClick={handleLogout}
-            className="bg-white/10 text-santa-snow px-4 py-2 rounded-lg hover:bg-white/20 transition border border-white/10"
+            className="self-start sm:self-auto bg-white/10 text-santa-snow px-4 py-2 rounded-lg hover:bg-white/20 transition border border-white/10 min-h-[44px]"
           >
             Logout
           </button>

@@ -599,30 +599,11 @@ test.describe("Responsive Design", () => {
   });
 });
 
-test.describe("Pricing Page", () => {
-  test("navigates to /pricing", async ({ page }) => {
-    const response = await page.goto("/pricing");
-    // The page should load (may be 200 or 404 depending on if it exists)
-    expect(response).not.toBeNull();
-  });
-
-  test("shows three plan tiers", async ({ page }) => {
-    const response = await page.goto("/pricing");
-    // If the pricing page exists, verify plan tiers
-    if (response && response.status() === 200) {
-      // Look for plan tier containers - there should be 3
-      const plans = page.locator('[class*="plan"], [class*="tier"], [class*="card"]');
-      const headings = page.getByRole("heading");
-      // Verify pricing-related content is present
-      await expect(page.getByText(/free|basic|pro|premium|enterprise/i).first()).toBeVisible();
-    }
-  });
-
-  test("shows plan names and prices", async ({ page }) => {
-    const response = await page.goto("/pricing");
-    if (response && response.status() === 200) {
-      // Verify pricing information is displayed
-      await expect(page.getByText(/\$/i).first()).toBeVisible();
-    }
+test.describe("Pricing Section", () => {
+  test("shows pricing on home page", async ({ page }) => {
+    await page.goto("/");
+    await expect(page.getByText(/Simple Pricing/i).first()).toBeVisible();
+    await expect(page.getByText(/\$0/).first()).toBeVisible();
+    await expect(page.getByText(/\$10/).first()).toBeVisible();
   });
 });

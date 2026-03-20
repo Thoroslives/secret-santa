@@ -12,8 +12,10 @@ export async function checkGroupLimits(groupId: string) {
 
   if (!group) return null;
 
-  const plan = (group.plan || 'free') as PlanType;
-  const limits = PLANS[plan];
+  const rawPlan = group.plan || 'free';
+  // Map legacy plans (plus/pro) to unlimited
+  const plan: PlanType = (rawPlan === 'plus' || rawPlan === 'pro') ? 'unlimited' : (rawPlan as PlanType);
+  const limits = PLANS[plan] || PLANS.free;
 
   return {
     plan,

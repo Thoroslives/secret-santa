@@ -257,17 +257,17 @@ export default function AdminDashboard() {
   return (
     <div className="min-h-screen bg-santa-dark p-4 md:p-8">
       <div className="max-w-7xl mx-auto">
-        <div className="flex justify-between items-center mb-8">
-          <div>
-            <h1 className="text-4xl font-bold text-santa-red font-display">Admin Dashboard</h1>
-            <p className="text-gray-300 mt-1">{groupInfo.name}</p>
+        <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4 mb-8">
+          <div className="min-w-0">
+            <h1 className="text-2xl sm:text-4xl font-bold text-santa-red font-display">Admin Dashboard</h1>
+            <p className="text-gray-300 mt-1 text-sm sm:text-base truncate">{groupInfo.name}</p>
             <p className="text-sm text-gray-400">
-              Invite Code: <code className="bg-santa-dark border border-white/10 px-2 py-1 rounded font-mono text-santa-gold">{groupInfo.inviteCode}</code>
+              Invite Code: <code className="bg-santa-dark border border-white/10 px-2 py-1 rounded font-mono text-santa-gold text-xs sm:text-sm">{groupInfo.inviteCode}</code>
             </p>
           </div>
           <button
             onClick={handleLogout}
-            className="bg-white/10 text-santa-snow px-4 py-2 rounded-lg hover:bg-white/20 transition border border-white/10"
+            className="self-start sm:self-auto bg-white/10 text-santa-snow px-4 py-2 rounded-lg hover:bg-white/20 transition border border-white/10 min-h-[44px]"
           >
             Logout
           </button>
@@ -436,14 +436,51 @@ export default function AdminDashboard() {
           {people.length === 0 ? (
             <p className="text-gray-400">No people added yet. Add your first person above!</p>
           ) : (
-            <div className="overflow-x-auto">
+            <>
+            {/* Mobile card layout */}
+            <div className="space-y-3 md:hidden">
+              {people.map((person) => (
+                <div key={person.id} className="bg-santa-dark/50 border border-white/5 rounded-lg p-4">
+                  <div className="flex justify-between items-start mb-2">
+                    <span className="font-semibold text-santa-snow">{person.name}</span>
+                    <button
+                      onClick={() => handleDeletePerson(person.id, person.name)}
+                      className="text-santa-red hover:text-santa-red-dark font-semibold text-sm min-h-[44px] min-w-[44px] flex items-center justify-center"
+                    >
+                      Delete
+                    </button>
+                  </div>
+                  {person.email && (
+                    <p className="text-gray-400 text-sm truncate mb-1">{person.email}</p>
+                  )}
+                  <div className="flex flex-wrap items-center gap-2 text-sm">
+                    <code className="bg-santa-dark border border-white/10 px-2 py-1 rounded font-mono text-santa-gold text-xs">
+                      {person.loginCode}
+                    </code>
+                    <span className="text-gray-400">{person._count.wishlistItems}/5 items</span>
+                    {person._count.wishlistItems > 0 ? (
+                      <span className="bg-santa-green/10 text-santa-green text-xs px-2 py-0.5 rounded-full font-semibold border border-santa-green/20">
+                        Saved
+                      </span>
+                    ) : (
+                      <span className="bg-white/5 text-gray-500 text-xs px-2 py-0.5 rounded-full border border-white/10">
+                        Not saved
+                      </span>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {/* Desktop table layout */}
+            <div className="hidden md:block overflow-x-auto">
               <table className="w-full">
                 <thead>
                   <tr className="border-b border-white/10">
                     <th className="text-left py-3 px-4 text-santa-gold text-sm">Name</th>
                     <th className="text-left py-3 px-4 text-santa-gold text-sm">Email</th>
                     <th className="text-left py-3 px-4 text-santa-gold text-sm">Login Code</th>
-                    <th className="text-left py-3 px-4 text-santa-gold text-sm">Wishlist Items</th>
+                    <th className="text-left py-3 px-4 text-santa-gold text-sm">Wishlist</th>
                     <th className="text-left py-3 px-4 text-santa-gold text-sm">Actions</th>
                   </tr>
                 </thead>
@@ -470,7 +507,7 @@ export default function AdminDashboard() {
                       </td>
                       <td className="py-3 px-4">
                         <div className="flex items-center gap-2">
-                          <span className="text-santa-snow">{person._count.wishlistItems} / 5</span>
+                          <span className="text-santa-snow">{person._count.wishlistItems}/5</span>
                           {person._count.wishlistItems > 0 ? (
                             <span className="bg-santa-green/10 text-santa-green text-xs px-2 py-1 rounded-full font-semibold border border-santa-green/20">
                               Saved
@@ -495,6 +532,7 @@ export default function AdminDashboard() {
                 </tbody>
               </table>
             </div>
+            </>
           )}
         </div>
 
@@ -504,7 +542,22 @@ export default function AdminDashboard() {
             <h2 className="text-2xl font-bold text-santa-snow mb-4">
               Assignments ({assignments.length})
             </h2>
-            <div className="overflow-x-auto">
+            {/* Mobile card layout */}
+            <div className="space-y-2 md:hidden">
+              {assignments.map((assignment) => (
+                <div key={assignment.id} className="bg-santa-dark/50 border border-white/5 rounded-lg p-3 flex justify-between items-center">
+                  <div className="text-sm">
+                    <span className="text-santa-snow">{assignment.giver.name}</span>
+                    <span className="text-gray-500 mx-2">&rarr;</span>
+                    <span className="text-santa-snow">{assignment.receiver.name}</span>
+                  </div>
+                  <span className="text-gray-400 text-xs">{assignment.receiver.wishlistItems.length} items</span>
+                </div>
+              ))}
+            </div>
+
+            {/* Desktop table layout */}
+            <div className="hidden md:block overflow-x-auto">
               <table className="w-full">
                 <thead>
                   <tr className="border-b border-white/10">

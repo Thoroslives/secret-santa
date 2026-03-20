@@ -14,7 +14,7 @@ export async function POST(request: NextRequest) {
       payment_method_types: ['card'],
       line_items: [{ price: priceId, quantity: 1 }],
       success_url: `${process.env.NEXTAUTH_URL}/admin/dashboard?payment=success&plan=${plan}`,
-      cancel_url: `${process.env.NEXTAUTH_URL}/pricing?payment=cancelled`,
+      cancel_url: `${process.env.NEXTAUTH_URL}/?payment=cancelled`,
       metadata: { groupId, plan },
     });
 

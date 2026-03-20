@@ -51,11 +51,20 @@ export default function Home() {
     "url": "https://santa.wagnerway.co.za",
     "applicationCategory": "Lifestyle",
     "operatingSystem": "All",
-    "offers": {
-      "@type": "Offer",
-      "price": "0",
-      "priceCurrency": "USD"
-    },
+    "offers": [
+      {
+        "@type": "Offer",
+        "price": "0",
+        "priceCurrency": "USD",
+        "description": "Free plan — up to 10 participants per group"
+      },
+      {
+        "@type": "Offer",
+        "price": "10",
+        "priceCurrency": "USD",
+        "description": "Unlimited plan — unlimited participants, one-time payment"
+      }
+    ],
     "featureList": [
       "Create unlimited Secret Santa groups",
       "Automatic random assignment algorithm",
@@ -104,10 +113,10 @@ export default function Home() {
       },
       {
         "@type": "Question",
-        "name": "Is this Secret Santa app completely free?",
+        "name": "Is this Secret Santa app free?",
         "acceptedAnswer": {
           "@type": "Answer",
-          "text": "Yes! Our Secret Santa generator is 100% free to use. You can create unlimited groups, add unlimited participants, manage wishlists, and generate assignments without any cost or hidden fees."
+          "text": "Yes, our Secret Santa generator is free for groups of up to 10 participants. If you need more than 10 people in a group, you can unlock unlimited participants with a one-time $10 payment."
         }
       },
       {
@@ -123,7 +132,7 @@ export default function Home() {
         "name": "How many people can participate in a Secret Santa group?",
         "acceptedAnswer": {
           "@type": "Answer",
-          "text": "You need a minimum of 3 people to generate assignments, but there is no maximum limit. Our Secret Santa organizer works perfectly for small family gatherings or large office parties with dozens of participants."
+          "text": "You need a minimum of 3 people to generate assignments. The free plan supports up to 10 participants per group. For larger groups, you can unlock unlimited participants with a one-time $10 payment."
         }
       },
       {
@@ -231,8 +240,8 @@ export default function Home() {
       a: "It's simple! Create a group and set an admin password. Then add participants with their names and optional email addresses. Share the invite code with your group. Each person logs in to create their wishlist. When everyone is ready, the admin clicks one button to generate random assignments. Each participant then sees who they're buying for and can view their recipient's wishlist."
     },
     {
-      q: "Is this Secret Santa app completely free?",
-      a: "Yes! Our Secret Santa generator is 100% free to use. You can create unlimited groups, add unlimited participants, manage wishlists, and generate assignments without any cost or hidden fees. We believe organizing holiday fun should be accessible to everyone."
+      q: "Is this Secret Santa app free?",
+      a: "Yes, our Secret Santa generator is free for groups of up to 10 participants. You get unlimited groups, wishlist management, and random assignments at no cost. If you need more than 10 people in a group, you can unlock unlimited participants with a one-time $10 payment."
     },
     {
       q: "Do I need to create an account or register?",
@@ -240,7 +249,7 @@ export default function Home() {
     },
     {
       q: "How many people can participate in a Secret Santa group?",
-      a: "You need a minimum of 3 people to generate assignments, but there is no maximum limit. Our Secret Santa organizer works perfectly for small family gatherings of 4-5 people or large office parties with dozens of participants."
+      a: "You need a minimum of 3 people to generate assignments. The free plan supports up to 10 participants per group. For larger groups like office parties, you can unlock unlimited participants with a one-time $10 payment."
     },
     {
       q: "Can I set a gift budget for my Secret Santa group?",
@@ -287,7 +296,7 @@ export default function Home() {
         dangerouslySetInnerHTML={{ __html: JSON.stringify(howToStructuredData) }}
       />
 
-      <div className="min-h-screen bg-santa-dark text-santa-snow">
+      <div className="min-h-screen bg-santa-dark text-santa-snow overflow-x-hidden">
         {/* Hero Section */}
         <header className="relative overflow-hidden">
           <div className="absolute inset-0 opacity-10">
@@ -301,12 +310,12 @@ export default function Home() {
           <div className="container mx-auto px-4 py-20 relative z-10">
             <div className="text-center max-w-4xl mx-auto">
               <div className="text-7xl mb-6">🎅</div>
-              <h1 className="text-5xl md:text-7xl font-bold mb-6 font-display">
+              <h1 className="text-3xl sm:text-5xl md:text-7xl font-bold mb-6 font-display">
                 <span className="text-santa-red">Secret</span>{" "}
                 <span className="text-santa-green">Santa</span>{" "}
                 <span className="text-santa-gold">Generator</span>
               </h1>
-              <p className="text-2xl md:text-3xl text-santa-gold mb-4 font-semibold">
+              <p className="text-lg sm:text-2xl md:text-3xl text-santa-gold mb-4 font-semibold">
                 Free Online Gift Exchange Organizer
               </p>
               <p className="text-lg md:text-xl text-gray-300 mb-10 max-w-3xl mx-auto leading-relaxed">
@@ -354,7 +363,7 @@ export default function Home() {
         <section className="py-20 bg-[#151528]" aria-labelledby="how-it-works-heading">
           <div className="container mx-auto px-4">
             <div className="text-center mb-14">
-              <h2 id="how-it-works-heading" className="text-4xl md:text-5xl font-bold mb-4 font-display">
+              <h2 id="how-it-works-heading" className="text-2xl sm:text-4xl md:text-5xl font-bold mb-4 font-display">
                 How It Works &mdash; <span className="text-santa-gold">Simple as 1, 2, 3!</span>
               </h2>
               <p className="text-xl text-gray-400 max-w-3xl mx-auto">
@@ -394,7 +403,7 @@ export default function Home() {
         <section className="py-20 bg-santa-dark" aria-labelledby="features-heading">
           <div className="container mx-auto px-4">
             <div className="text-center mb-14">
-              <h2 id="features-heading" className="text-4xl md:text-5xl font-bold mb-4 font-display">
+              <h2 id="features-heading" className="text-2xl sm:text-4xl md:text-5xl font-bold mb-4 font-display">
                 Why Choose Our <span className="text-santa-red">Secret Santa</span> App?
               </h2>
               <p className="text-xl text-gray-400 max-w-3xl mx-auto">
@@ -445,68 +454,90 @@ export default function Home() {
 
               <div className="p-6 bg-[#151528] rounded-2xl border border-white/5 card-glow">
                 <div className="text-4xl mb-4">✨</div>
-                <h3 className="text-lg font-bold text-santa-gold mb-2">100% Free Forever</h3>
+                <h3 className="text-lg font-bold text-santa-gold mb-2">No Registration Required</h3>
                 <p className="text-gray-400 text-sm">
-                  No hidden fees, no premium paywalls, no registration required. Our free secret santa generator is accessible to everyone &mdash; unlimited groups and participants.
+                  No sign-ups, no accounts needed. Free for groups up to 10 people. Need more? Unlock unlimited participants for a one-time $10 payment.
                 </p>
               </div>
             </div>
           </div>
         </section>
 
-        {/* Pricing Preview */}
+        {/* Pricing */}
         <section className="py-20 bg-[#151528]" aria-labelledby="pricing-heading">
           <div className="container mx-auto px-4 text-center">
-            <h2 id="pricing-heading" className="text-4xl md:text-5xl font-bold mb-4 font-display">
+            <h2 id="pricing-heading" className="text-2xl sm:text-4xl md:text-5xl font-bold mb-4 font-display">
               <span className="text-santa-gold">Simple</span> Pricing
             </h2>
             <p className="text-xl text-gray-400 mb-10 max-w-2xl mx-auto">
-              Our secret santa app is free for everyone. No tricks, no upsells.
+              Free for groups up to 10 people. One simple upgrade for bigger groups.
             </p>
 
-            <div className="max-w-md mx-auto bg-santa-dark rounded-2xl border-2 border-santa-gold/30 p-8 card-glow">
-              <div className="text-santa-gold text-sm font-semibold uppercase tracking-wider mb-2">Free Plan</div>
-              <div className="text-5xl font-bold text-white mb-2">$0</div>
-              <p className="text-gray-400 mb-6">Forever free &mdash; no credit card needed</p>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 max-w-3xl mx-auto">
+              {/* Free Tier */}
+              <div className="bg-santa-dark rounded-2xl border-2 border-white/10 p-8 card-glow">
+                <div className="text-4xl mb-3">🎁</div>
+                <div className="text-santa-green text-sm font-semibold uppercase tracking-wider mb-2">Free</div>
+                <div className="text-5xl font-bold text-white mb-2">$0</div>
+                <p className="text-gray-400 mb-6">No credit card needed</p>
 
-              <ul className="text-left space-y-3 mb-8">
-                <li className="flex items-center text-gray-300">
-                  <span className="text-santa-green mr-3">&#10003;</span> Unlimited Secret Santa groups
-                </li>
-                <li className="flex items-center text-gray-300">
-                  <span className="text-santa-green mr-3">&#10003;</span> Unlimited participants per group
-                </li>
-                <li className="flex items-center text-gray-300">
-                  <span className="text-santa-green mr-3">&#10003;</span> Wishlist management (5 items)
-                </li>
-                <li className="flex items-center text-gray-300">
-                  <span className="text-santa-green mr-3">&#10003;</span> Random assignment algorithm
-                </li>
-                <li className="flex items-center text-gray-300">
-                  <span className="text-santa-green mr-3">&#10003;</span> Email magic link login
-                </li>
-                <li className="flex items-center text-gray-300">
-                  <span className="text-santa-green mr-3">&#10003;</span> Multi-currency budget support
-                </li>
-                <li className="flex items-center text-gray-300">
-                  <span className="text-santa-green mr-3">&#10003;</span> Mobile-friendly design
-                </li>
-              </ul>
+                <ul className="text-left space-y-3 mb-8">
+                  <li className="flex items-start text-gray-300">
+                    <span className="text-santa-green mr-3 mt-0.5 flex-shrink-0">&#10003;</span> <span>Up to 10 participants per group</span>
+                  </li>
+                  <li className="flex items-start text-gray-300">
+                    <span className="text-santa-green mr-3 mt-0.5 flex-shrink-0">&#10003;</span> <span>Unlimited groups</span>
+                  </li>
+                  <li className="flex items-start text-gray-300">
+                    <span className="text-santa-green mr-3 mt-0.5 flex-shrink-0">&#10003;</span> <span>Wishlist management (5 items)</span>
+                  </li>
+                  <li className="flex items-start text-gray-300">
+                    <span className="text-santa-green mr-3 mt-0.5 flex-shrink-0">&#10003;</span> <span>Random assignments</span>
+                  </li>
+                  <li className="flex items-start text-gray-300">
+                    <span className="text-santa-green mr-3 mt-0.5 flex-shrink-0">&#10003;</span> <span>Email magic link login</span>
+                  </li>
+                  <li className="flex items-start text-gray-300">
+                    <span className="text-santa-green mr-3 mt-0.5 flex-shrink-0">&#10003;</span> <span>Multi-currency budgets</span>
+                  </li>
+                </ul>
 
-              <Link
-                href="/create"
-                className="block w-full bg-santa-gold text-santa-dark py-3 rounded-xl font-bold text-lg hover:bg-santa-gold-dark transition-colors"
-              >
-                Start Free &rarr;
-              </Link>
+                <Link
+                  href="/create"
+                  className="block w-full bg-santa-green text-white py-3 rounded-xl font-bold text-lg hover:bg-santa-green-dark transition-colors"
+                >
+                  Get Started &rarr;
+                </Link>
+              </div>
+
+              {/* Unlimited Tier */}
+              <div className="bg-santa-dark rounded-2xl border-2 border-santa-gold/30 p-8 card-glow relative">
+                <div className="absolute -top-3 left-1/2 -translate-x-1/2 bg-santa-gold text-santa-dark text-xs font-bold px-3 py-1 rounded-full uppercase tracking-wider">Best Value</div>
+                <div className="text-4xl mb-3">🏆</div>
+                <div className="text-santa-gold text-sm font-semibold uppercase tracking-wider mb-2">Unlimited</div>
+                <div className="text-5xl font-bold text-white mb-2">$10</div>
+                <p className="text-gray-400 mb-6">One-time payment</p>
+
+                <ul className="text-left space-y-3 mb-8">
+                  <li className="flex items-start text-gray-300">
+                    <span className="text-santa-gold mr-3 mt-0.5 flex-shrink-0">&#10003;</span> <span>Everything in Free</span>
+                  </li>
+                  <li className="flex items-start text-gray-300">
+                    <span className="text-santa-gold mr-3 mt-0.5 flex-shrink-0">&#10003;</span> <span>Unlimited participants per group</span>
+                  </li>
+                  <li className="flex items-start text-gray-300">
+                    <span className="text-santa-gold mr-3 mt-0.5 flex-shrink-0">&#10003;</span> <span>Pay once, use forever</span>
+                  </li>
+                </ul>
+
+                <a
+                  href="https://buy.stripe.com/7sY00i9dP2otgDv0RbeAg03"
+                  className="block w-full bg-santa-gold text-santa-dark py-3 rounded-xl font-bold text-lg hover:bg-santa-gold-dark transition-colors text-center"
+                >
+                  Buy Now &rarr;
+                </a>
+              </div>
             </div>
-
-            <p className="mt-6 text-gray-500 text-sm">
-              Looking for advanced features?{" "}
-              <Link href="/pricing" className="text-santa-gold hover:underline">
-                View pricing details &rarr;
-              </Link>
-            </p>
           </div>
         </section>
 
@@ -514,7 +545,7 @@ export default function Home() {
         <section className="py-20 bg-santa-dark" aria-labelledby="faq-heading">
           <div className="container mx-auto px-4">
             <div className="text-center mb-14">
-              <h2 id="faq-heading" className="text-4xl md:text-5xl font-bold mb-4 font-display">
+              <h2 id="faq-heading" className="text-2xl sm:text-4xl md:text-5xl font-bold mb-4 font-display">
                 Frequently Asked <span className="text-santa-red">Questions</span>
               </h2>
               <p className="text-xl text-gray-400 max-w-3xl mx-auto">
@@ -544,7 +575,7 @@ export default function Home() {
         {/* CTA Section */}
         <section className="py-20 bg-gradient-to-r from-santa-red-dark via-santa-red to-santa-green" aria-labelledby="cta-heading">
           <div className="container mx-auto px-4 text-center">
-            <h2 id="cta-heading" className="text-4xl md:text-5xl font-bold mb-4 text-white font-display">
+            <h2 id="cta-heading" className="text-2xl sm:text-4xl md:text-5xl font-bold mb-4 text-white font-display">
               Ready to Create Your Secret Santa Magic?
             </h2>
             <p className="text-xl mb-10 text-white/80 max-w-2xl mx-auto">
@@ -553,13 +584,13 @@ export default function Home() {
             <div className="flex flex-col sm:flex-row gap-4 justify-center">
               <Link
                 href="/create"
-                className="bg-white text-santa-red px-8 py-4 rounded-xl font-bold text-lg hover:bg-santa-snow transition-colors hover:scale-105 transform duration-300"
+                className="bg-white text-santa-red px-8 py-4 rounded-xl font-bold text-base sm:text-lg hover:bg-santa-snow transition-colors hover:scale-105 transform duration-300 min-h-[48px]"
               >
                 🎄 Create New Group
               </Link>
               <Link
                 href="/join"
-                className="bg-transparent border-2 border-white text-white px-8 py-4 rounded-xl font-bold text-lg hover:bg-white hover:text-santa-green transition-all hover:scale-105 transform duration-300"
+                className="bg-transparent border-2 border-white text-white px-8 py-4 rounded-xl font-bold text-base sm:text-lg hover:bg-white hover:text-santa-green transition-all hover:scale-105 transform duration-300 min-h-[48px]"
               >
                 🎁 Join Existing Group
               </Link>
@@ -589,7 +620,7 @@ export default function Home() {
                     <li><Link href="/create" className="text-gray-400 hover:text-santa-gold transition-colors text-sm">Create Group</Link></li>
                     <li><Link href="/join" className="text-gray-400 hover:text-santa-gold transition-colors text-sm">Join Group</Link></li>
                     <li><Link href="/login" className="text-gray-400 hover:text-santa-gold transition-colors text-sm">Participant Login</Link></li>
-                    <li><Link href="/pricing" className="text-gray-400 hover:text-santa-gold transition-colors text-sm">Pricing</Link></li>
+                    <li><a href="#pricing-heading" className="text-gray-400 hover:text-santa-gold transition-colors text-sm">Pricing</a></li>
                   </ul>
                 </nav>
               </div>
