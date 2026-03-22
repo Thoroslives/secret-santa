@@ -1,13 +1,25 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { generateSecretSantaAssignments } from "@/lib/secret-santa";
+import { getSession } from "@/lib/session";
 
 export async function POST(request: NextRequest) {
   try {
+    const session = await getSession();
+
+    if (!session.isAdmin) {
+      return NextResponse.json({ error: "Admin authentication required" }, { status: 403 });
+    }
+
     const { groupId, year } = await request.json();
 
     if (!groupId) {
       return NextResponse.json({ error: "Group ID is required" }, { status: 400 });
+    }
+
+    // Verify admin owns this group
+    if (session.adminGroupId !== groupId) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
     const currentYear = year || new Date().getFullYear();

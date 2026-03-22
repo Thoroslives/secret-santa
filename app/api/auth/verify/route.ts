@@ -1,19 +1,18 @@
-import { NextRequest, NextResponse } from 'next/server';
-import { PrismaClient } from '@/app/generated/prisma';
-import { verifyMagicToken } from '@/lib/email';
+import { NextRequest, NextResponse } from "next/server";
+import { prisma } from "@/lib/db";
+import { verifyMagicToken } from "@/lib/email";
+import { getSession } from "@/lib/session";
 
-const prisma = new PrismaClient();
-
-export const dynamic = 'force-dynamic';
+export const dynamic = "force-dynamic";
 
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
-    const token = searchParams.get('token');
+    const token = searchParams.get("token");
 
     if (!token) {
       return NextResponse.json(
-        { error: 'Invalid or missing token' },
+        { error: "Invalid or missing token" },
         { status: 400 }
       );
     }
@@ -23,7 +22,7 @@ export async function GET(request: NextRequest) {
 
     if (!tokenData) {
       return NextResponse.json(
-        { error: 'Invalid or expired token' },
+        { error: "Invalid or expired token" },
         { status: 400 }
       );
     }
@@ -38,19 +37,20 @@ export async function GET(request: NextRequest) {
 
     if (!person || person.email !== tokenData.email || person.groupId !== tokenData.groupId) {
       return NextResponse.json(
-        { error: 'Invalid token data' },
+        { error: "Invalid token data" },
         { status: 400 }
       );
     }
 
-    // Token is valid - create session data
-    const sessionData = {
-      personId: person.id,
-      groupId: person.groupId,
-      groupName: person.group.name,
-      personName: person.name,
-      loginMethod: 'magic-link',
-    };
+    // Set server-side session
+    const session = await getSession();
+    session.personId = person.id;
+    session.personName = person.name;
+    session.groupId = person.groupId;
+    session.groupName = person.group.name;
+    session.loginMethod = "magic-link";
+    session.isLoggedIn = true;
+    await session.save();
 
     // Return success with session data
     return NextResponse.json({
@@ -61,15 +61,12 @@ export async function GET(request: NextRequest) {
         groupId: person.groupId,
         groupName: person.group.name,
       },
-      sessionData,
     });
   } catch (error) {
-    console.error('Magic link verification error:', error);
+    console.error("Magic link verification error:", error);
     return NextResponse.json(
-      { error: 'Internal server error' },
+      { error: "Internal server error" },
       { status: 500 }
     );
-  } finally {
-    await prisma.$disconnect();
   }
 }

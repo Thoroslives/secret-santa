@@ -1,9 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import bcrypt from "bcryptjs";
+import { getSession } from "@/lib/session";
+import { adminAuthRateLimit } from "@/lib/rate-limit";
 
 export async function POST(request: NextRequest) {
   try {
+    const rateLimitResult = adminAuthRateLimit(request);
+    if (!rateLimitResult.success) return rateLimitResult.response!;
+
     const { password, groupId } = await request.json();
 
     if (!password) {
@@ -21,15 +26,24 @@ export async function POST(request: NextRequest) {
     });
 
     if (!adminConfig) {
-      return NextResponse.json({ error: "Group not found" }, { status: 404 });
+      // Use same error message to prevent enumeration
+      return NextResponse.json({ error: "Invalid credentials" }, { status: 401 });
     }
 
     // Verify password
     const isValid = await bcrypt.compare(password, adminConfig.hashedPassword);
 
     if (!isValid) {
-      return NextResponse.json({ error: "Invalid password" }, { status: 401 });
+      return NextResponse.json({ error: "Invalid credentials" }, { status: 401 });
     }
+
+    // Set server-side admin session
+    const session = await getSession();
+    session.isAdmin = true;
+    session.adminGroupId = adminConfig.group.id;
+    session.adminGroupName = adminConfig.group.name;
+    session.adminInviteCode = adminConfig.group.inviteCode;
+    await session.save();
 
     return NextResponse.json({
       success: true,

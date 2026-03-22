@@ -1,15 +1,25 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { generateLoginCode } from "@/lib/utils";
+import { getSession } from "@/lib/session";
 
 // GET all people for a group
 export async function GET(request: NextRequest) {
   try {
+    const session = await getSession();
     const { searchParams } = new URL(request.url);
     const groupId = searchParams.get("groupId");
 
     if (!groupId) {
       return NextResponse.json({ error: "Group ID is required" }, { status: 400 });
+    }
+
+    // Verify the user has access to this group
+    if (session.isAdmin && session.adminGroupId !== groupId) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
+    if (session.isLoggedIn && session.groupId !== groupId) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
     const people = await prisma.person.findMany({
@@ -32,9 +42,15 @@ export async function GET(request: NextRequest) {
   }
 }
 
-// POST create a new person in a group
+// POST create a new person in a group (admin only)
 export async function POST(request: NextRequest) {
   try {
+    const session = await getSession();
+
+    if (!session.isAdmin) {
+      return NextResponse.json({ error: "Admin authentication required" }, { status: 403 });
+    }
+
     const { name, email, groupId } = await request.json();
 
     if (!name || name.trim().length === 0) {
@@ -43,6 +59,11 @@ export async function POST(request: NextRequest) {
 
     if (!groupId) {
       return NextResponse.json({ error: "Group ID is required" }, { status: 400 });
+    }
+
+    // Verify admin owns this group
+    if (session.adminGroupId !== groupId) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
     // Validate email if provided

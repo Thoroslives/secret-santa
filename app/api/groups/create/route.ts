@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { generateGroupInviteCode } from "@/lib/utils";
+import { validatePassword } from "@/lib/password";
 import bcrypt from "bcryptjs";
 
 export async function POST(request: NextRequest) {
@@ -11,9 +12,10 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Group name is required" }, { status: 400 });
     }
 
-    if (!adminPassword || adminPassword.length < 6) {
+    const passwordValidation = validatePassword(adminPassword);
+    if (!passwordValidation.valid) {
       return NextResponse.json(
-        { error: "Admin password must be at least 6 characters" },
+        { error: passwordValidation.error },
         { status: 400 }
       );
     }
@@ -29,7 +31,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Hash admin password
-    const hashedPassword = await bcrypt.hash(adminPassword, 10);
+    const hashedPassword = await bcrypt.hash(adminPassword, 12);
 
     // Create group with admin config
     const group = await prisma.group.create({

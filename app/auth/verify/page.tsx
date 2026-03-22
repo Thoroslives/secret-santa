@@ -2,7 +2,6 @@
 
 import { useEffect, useState, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import Link from "next/link";
 
 function VerifyContent() {
   const [status, setStatus] = useState<"loading" | "success" | "error">("loading");
@@ -19,19 +18,11 @@ function VerifyContent() {
       return;
     }
 
-    // Verify the magic link token
+    // Verify the magic link token - session cookie is set server-side
     fetch(`/api/auth/verify?token=${encodeURIComponent(token)}`)
       .then((res) => res.json())
       .then((data) => {
         if (data.success) {
-          // Store session data
-          sessionStorage.setItem("personId", data.person.id);
-          sessionStorage.setItem("groupId", data.person.groupId);
-          sessionStorage.setItem("groupName", data.person.groupName);
-          sessionStorage.setItem("personName", data.person.name);
-          sessionStorage.setItem("isLoggedIn", "true");
-          sessionStorage.setItem("loginMethod", "magic-link");
-
           setStatus("success");
           setMessage(`Welcome back, ${data.person.name}!`);
 

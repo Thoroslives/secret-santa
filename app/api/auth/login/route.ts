@@ -1,8 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
+import { getSession } from "@/lib/session";
+import { authRateLimit } from "@/lib/rate-limit";
 
 export async function POST(request: NextRequest) {
   try {
+    const rateLimitResult = authRateLimit(request);
+    if (!rateLimitResult.success) return rateLimitResult.response!;
+
     const { loginCode, groupId } = await request.json();
 
     if (!loginCode) {
@@ -51,6 +56,16 @@ export async function POST(request: NextRequest) {
     if (!person) {
       return NextResponse.json({ error: "Invalid login code for this group" }, { status: 401 });
     }
+
+    // Set server-side session
+    const session = await getSession();
+    session.personId = person.id;
+    session.personName = person.name;
+    session.groupId = person.group.id;
+    session.groupName = person.group.name;
+    session.loginMethod = "code";
+    session.isLoggedIn = true;
+    await session.save();
 
     return NextResponse.json({
       person: {

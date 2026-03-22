@@ -35,9 +35,17 @@ function createTransporter(): nodemailer.Transporter {
   return nodemailer.createTransport(config);
 }
 
+function getMagicLinkSecret(): string {
+  const secret = process.env.MAGIC_LINK_SECRET;
+  if (!secret) {
+    throw new Error('MAGIC_LINK_SECRET environment variable is required but not set');
+  }
+  return secret;
+}
+
 // Generate magic link token
 export function generateMagicToken(data: MagicLinkData): string {
-  const secret = process.env.MAGIC_LINK_SECRET || 'default-secret-change-in-production';
+  const secret = getMagicLinkSecret();
   const expiresMinutes = parseInt(process.env.MAGIC_LINK_EXPIRES_MINUTES || '15');
   const expires = Date.now() + (expiresMinutes * 60 * 1000);
 
@@ -58,7 +66,7 @@ export function generateMagicToken(data: MagicLinkData): string {
 // Verify magic link token
 export function verifyMagicToken(token: string): MagicLinkData | null {
   try {
-    const secret = process.env.MAGIC_LINK_SECRET || 'default-secret-change-in-production';
+    const secret = getMagicLinkSecret();
     const decoded = JSON.parse(Buffer.from(token, 'base64url').toString());
     const { payload, signature } = decoded;
 

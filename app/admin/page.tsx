@@ -9,28 +9,28 @@ export default function AdminLogin() {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [groupName, setGroupName] = useState("");
+  const [groupId, setGroupId] = useState("");
   const router = useRouter();
 
   useEffect(() => {
-    // Check if we have group info from previous steps
-    const name = sessionStorage.getItem("groupName");
-    const groupId = sessionStorage.getItem("groupId");
+    // Check if we have group info from previous steps (sessionStorage used only for join flow)
+    const storedGroupId = sessionStorage.getItem("groupId");
+    const storedGroupName = sessionStorage.getItem("groupName");
 
-    if (!groupId) {
+    if (!storedGroupId) {
       // No group selected, redirect to home
       router.push("/");
       return;
     }
 
-    setGroupName(name || "Your Group");
+    setGroupId(storedGroupId);
+    setGroupName(storedGroupName || "Your Group");
   }, [router]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
     setLoading(true);
-
-    const groupId = sessionStorage.getItem("groupId");
 
     if (!groupId) {
       setError("No group selected. Please start over.");
@@ -53,11 +53,11 @@ export default function AdminLogin() {
         return;
       }
 
-      // Store admin auth and group info
-      sessionStorage.setItem("adminAuth", "true");
-      sessionStorage.setItem("groupId", data.group.id);
-      sessionStorage.setItem("groupName", data.group.name);
-      sessionStorage.setItem("inviteCode", data.group.inviteCode);
+      // Session cookie set by server. Clear sessionStorage group info.
+      sessionStorage.removeItem("groupId");
+      sessionStorage.removeItem("groupName");
+      sessionStorage.removeItem("inviteCode");
+      sessionStorage.removeItem("adminAuth");
       router.push("/admin/dashboard");
     } catch (err) {
       setError("An error occurred. Please try again.");

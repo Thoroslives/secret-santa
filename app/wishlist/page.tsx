@@ -2,7 +2,6 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import Link from "next/link";
 
 interface WishlistItem {
   id?: string;
@@ -21,6 +20,7 @@ export default function Wishlist() {
   const [personId, setPersonId] = useState("");
   const [personName, setPersonName] = useState("");
   const [groupName, setGroupName] = useState("");
+  const [groupId, setGroupId] = useState("");
   const [items, setItems] = useState<WishlistItem[]>([
     { title: "", link: "" },
   ]);
@@ -33,54 +33,54 @@ export default function Wishlist() {
   const router = useRouter();
 
   useEffect(() => {
-    const id = sessionStorage.getItem("personId");
-    const name = sessionStorage.getItem("personName");
-    const group = sessionStorage.getItem("groupName");
-    const groupId = sessionStorage.getItem("groupId");
-    const loginCode = sessionStorage.getItem("loginCode");
+    // Check session from server
+    fetch("/api/auth/session")
+      .then((res) => res.json())
+      .then((session) => {
+        if (!session.authenticated || !session.isLoggedIn) {
+          router.push("/");
+          return;
+        }
 
-    if (!id || !name) {
-      router.push("/login");
-      return;
-    }
+        setPersonId(session.personId);
+        setPersonName(session.personName);
+        setGroupName(session.groupName || "");
+        setGroupId(session.groupId);
 
-    setPersonId(id);
-    setPersonName(name);
-    setGroupName(group || "");
-
-    if (loginCode && groupId) {
-      loadPersonData(loginCode, groupId);
-    } else {
-      setLoading(false);
-    }
+        loadPersonData(session.groupId);
+      })
+      .catch(() => {
+        router.push("/");
+      });
   }, [router]);
 
-  const loadPersonData = async (loginCode: string, groupId: string) => {
+  const loadPersonData = async (gId: string) => {
     try {
       const [authRes, groupRes] = await Promise.all([
         fetch("/api/auth/login", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ loginCode, groupId }),
+          body: JSON.stringify({ loginCode: "__session_reload__", groupId: gId }),
         }),
-        fetch(`/api/groups/${groupId}`)
+        fetch(`/api/groups/${gId}`)
       ]);
 
-      if (authRes.ok) {
-        const data = await authRes.json();
+      // Use the person data endpoint instead of re-login
+      // We'll fetch person data via the session-aware endpoint
+      const personRes = await fetch(`/api/auth/person-data`);
+      if (personRes.ok) {
+        const data = await personRes.json();
 
-        // Load existing wishlist items
-        if (data.person.wishlistItems && data.person.wishlistItems.length > 0) {
-          setItems(data.person.wishlistItems.map((item: WishlistItem) => ({
+        if (data.wishlistItems && data.wishlistItems.length > 0) {
+          setItems(data.wishlistItems.map((item: WishlistItem) => ({
             id: item.id,
             title: item.title,
             link: item.link,
           })));
         }
 
-        // Load assignment
-        if (data.person.assignment) {
-          setAssignment(data.person.assignment);
+        if (data.assignment) {
+          setAssignment(data.assignment);
         }
       }
 
@@ -162,11 +162,9 @@ export default function Wishlist() {
       setSuccessMessage("Wishlist saved successfully!");
       setSaving(false);
 
-      // Reload to get updated assignment if available
-      const loginCode = sessionStorage.getItem("loginCode");
-      const groupId = sessionStorage.getItem("groupId");
-      if (loginCode && groupId) {
-        loadPersonData(loginCode, groupId);
+      // Reload person data
+      if (groupId) {
+        loadPersonData(groupId);
       }
 
       setTimeout(() => setSuccessMessage(""), 3000);
@@ -176,8 +174,8 @@ export default function Wishlist() {
     }
   };
 
-  const handleLogout = () => {
-    sessionStorage.clear();
+  const handleLogout = async () => {
+    await fetch("/api/auth/logout", { method: "POST" });
     router.push("/");
   };
 

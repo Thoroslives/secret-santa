@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { PrismaClient } from "@/app/generated/prisma";
-
-const prisma = new PrismaClient();
+import { prisma } from "@/lib/db";
+import { getSession } from "@/lib/session";
 
 export const dynamic = 'force-dynamic';
 
@@ -10,7 +9,14 @@ export async function GET(
   { params }: { params: { id: string } }
 ) {
   try {
+    const session = await getSession();
     const groupId = params.id;
+
+    // Verify user has access to this group
+    const userGroupId = session.isAdmin ? session.adminGroupId : session.groupId;
+    if (userGroupId !== groupId) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
 
     const group = await prisma.group.findUnique({
       where: { id: groupId },
@@ -32,8 +38,6 @@ export async function GET(
   } catch (error) {
     console.error("Error fetching group:", error);
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
-  } finally {
-    await prisma.$disconnect();
   }
 }
 
@@ -42,7 +46,14 @@ export async function PATCH(
   { params }: { params: { id: string } }
 ) {
   try {
+    const session = await getSession();
     const groupId = params.id;
+
+    // Only admins can modify groups
+    if (!session.isAdmin || session.adminGroupId !== groupId) {
+      return NextResponse.json({ error: "Admin authentication required" }, { status: 403 });
+    }
+
     const { budgetAmount, budgetCurrency } = await request.json();
 
     // Validate currency if provided
@@ -79,7 +90,5 @@ export async function PATCH(
   } catch (error) {
     console.error("Error updating group:", error);
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
-  } finally {
-    await prisma.$disconnect();
   }
 }

@@ -12,19 +12,22 @@ export default function Login() {
   const [loading, setLoading] = useState(false);
   const [emailLoading, setEmailLoading] = useState(false);
   const [groupName, setGroupName] = useState("");
+  const [groupId, setGroupId] = useState("");
   const [loginMethod, setLoginMethod] = useState<"code" | "email">("code");
   const router = useRouter();
 
   useEffect(() => {
-    const name = sessionStorage.getItem("groupName");
-    const groupId = sessionStorage.getItem("groupId");
+    // Get groupId from sessionStorage (set during join flow)
+    const storedGroupId = sessionStorage.getItem("groupId");
+    const storedGroupName = sessionStorage.getItem("groupName");
 
-    if (!groupId) {
+    if (!storedGroupId) {
       router.push("/");
       return;
     }
 
-    setGroupName(name || "Your Group");
+    setGroupId(storedGroupId);
+    setGroupName(storedGroupName || "Your Group");
   }, [router]);
 
   const handleCodeSubmit = async (e: React.FormEvent) => {
@@ -32,8 +35,6 @@ export default function Login() {
     setError("");
     setSuccess("");
     setLoading(true);
-
-    const groupId = sessionStorage.getItem("groupId");
 
     if (!groupId) {
       setError("No group selected. Please start over.");
@@ -56,14 +57,9 @@ export default function Login() {
         return;
       }
 
-      // Store person data in session storage
-      sessionStorage.setItem("personId", data.person.id);
-      sessionStorage.setItem("personName", data.person.name);
-      sessionStorage.setItem("loginCode", data.person.loginCode);
-      sessionStorage.setItem("groupId", data.person.group.id);
-      sessionStorage.setItem("groupName", data.person.group.name);
-      sessionStorage.setItem("isLoggedIn", "true");
-      sessionStorage.setItem("loginMethod", "code");
+      // Session cookie is set by the server. Clear sessionStorage group info.
+      sessionStorage.removeItem("groupId");
+      sessionStorage.removeItem("groupName");
       router.push("/wishlist");
     } catch (err) {
       setError("An error occurred. Please try again.");
@@ -76,8 +72,6 @@ export default function Login() {
     setError("");
     setSuccess("");
     setEmailLoading(true);
-
-    const groupId = sessionStorage.getItem("groupId");
 
     if (!groupId) {
       setError("No group selected. Please start over.");

@@ -2,7 +2,6 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import Link from "next/link";
 
 interface Person {
   id: string;
@@ -38,19 +37,25 @@ export default function AdminDashboard() {
   const router = useRouter();
 
   useEffect(() => {
-    // Check admin authentication and group
-    const adminAuth = sessionStorage.getItem("adminAuth");
-    const groupId = sessionStorage.getItem("groupId");
-    const groupName = sessionStorage.getItem("groupName");
-    const inviteCode = sessionStorage.getItem("inviteCode");
+    // Check admin session from server
+    fetch("/api/auth/session")
+      .then((res) => res.json())
+      .then((session) => {
+        if (!session.authenticated || !session.isAdmin) {
+          router.push("/admin");
+          return;
+        }
 
-    if (!adminAuth || !groupId) {
-      router.push("/admin");
-      return;
-    }
-
-    setGroupInfo({ id: groupId, name: groupName || "", inviteCode: inviteCode || "" });
-    loadData(groupId);
+        setGroupInfo({
+          id: session.adminGroupId,
+          name: session.adminGroupName || "",
+          inviteCode: session.adminInviteCode || "",
+        });
+        loadData(session.adminGroupId);
+      })
+      .catch(() => {
+        router.push("/admin");
+      });
   }, [router]);
 
   const loadData = async (groupId: string) => {
@@ -241,8 +246,8 @@ export default function AdminDashboard() {
     }
   };
 
-  const handleLogout = () => {
-    sessionStorage.clear();
+  const handleLogout = async () => {
+    await fetch("/api/auth/logout", { method: "POST" });
     router.push("/");
   };
 

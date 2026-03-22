@@ -1,11 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { PrismaClient } from '@/app/generated/prisma';
+import { prisma } from '@/lib/db';
 import { generateMagicToken, sendMagicLinkEmail } from '@/lib/email';
-
-const prisma = new PrismaClient();
+import { magicLinkRateLimit } from '@/lib/rate-limit';
 
 export async function POST(request: NextRequest) {
   try {
+    const rateLimitResult = magicLinkRateLimit(request);
+    if (!rateLimitResult.success) return rateLimitResult.response!;
+
     const { email, groupId } = await request.json();
 
     if (!email || !groupId) {
@@ -77,7 +79,5 @@ export async function POST(request: NextRequest) {
       { error: 'Internal server error' },
       { status: 500 }
     );
-  } finally {
-    await prisma.$disconnect();
   }
 }
