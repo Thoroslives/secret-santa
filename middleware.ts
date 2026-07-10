@@ -23,6 +23,8 @@ const adminApiRoutes = [
   "/api/people",
   "/api/assignments",
   "/api/assignments/generate",
+  "/api/blocks",
+  "/api/pins",
 ];
 
 // Routes that require admin for write operations

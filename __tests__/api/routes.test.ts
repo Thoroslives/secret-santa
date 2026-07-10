@@ -30,6 +30,17 @@ const mockPrismaDb = {
   adminConfig: {
     findUnique: jest.fn(),
   },
+  block: {
+    findFirst: jest.fn(),
+    findUnique: jest.fn(),
+    create: jest.fn(),
+    delete: jest.fn(),
+  },
+  forcedPin: {
+    findUnique: jest.fn(),
+    upsert: jest.fn(),
+    delete: jest.fn(),
+  },
   $disconnect: jest.fn(),
 };
 
@@ -112,9 +123,17 @@ jest.mock('@/lib/secret-santa', () => ({
 }));
 
 // ---------------------------------------------------------------------------
+// Mock @/lib/rounds (ensureRound) so pin/generate tests control the round
+// ---------------------------------------------------------------------------
+jest.mock('@/lib/rounds', () => ({
+  ensureRound: jest.fn(),
+}));
+
+// ---------------------------------------------------------------------------
 // Imports (after mocks)
 // ---------------------------------------------------------------------------
 import bcrypt from 'bcryptjs';
+import { ensureRound } from '@/lib/rounds';
 import { generateGroupInviteCode, generatePersonalLinkToken, validateWishlistItems } from '@/lib/utils';
 import { sendLoginLinkEmail } from '@/lib/email';
 import { generateSecretSantaAssignments } from '@/lib/secret-santa';
@@ -130,6 +149,8 @@ import { POST as updateWishlist } from '@/app/api/wishlist/route';
 import { POST as generateAssignments } from '@/app/api/assignments/generate/route';
 import { GET as getAssignments, DELETE as deleteAssignments } from '@/app/api/assignments/route';
 import { POST as adminAuth } from '@/app/api/admin/auth/route';
+import { POST as createBlock, DELETE as deleteBlock } from '@/app/api/blocks/route';
+import { POST as createPin, DELETE as deletePin } from '@/app/api/pins/route';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -1057,5 +1078,118 @@ describe('POST /api/admin/auth', () => {
       year: 2026,
     });
     expect(bcrypt.compare).toHaveBeenCalledWith('correct-password', 'hashed-password');
+  });
+});
+
+// ===========================================================================
+// POST/DELETE /api/blocks
+// ===========================================================================
+describe('/api/blocks', () => {
+  const url = 'http://localhost:3000/api/blocks';
+  beforeEach(() => {
+    mockSession.isAdmin = true;
+    mockSession.adminGroupId = 'group-1';
+  });
+
+  it('returns 400 when fields are missing', async () => {
+    const res = await createBlock(makePostRequest(url, { groupId: 'group-1' }));
+    expect(res.status).toBe(400);
+  });
+
+  it('returns 403 for a non-admin', async () => {
+    delete mockSession.isAdmin;
+    const res = await createBlock(makePostRequest(url, { groupId: 'group-1', personAId: 'a', personBId: 'b' }));
+    expect(res.status).toBe(403);
+  });
+
+  it('returns 403 when the admin does not own the group', async () => {
+    mockSession.adminGroupId = 'other-group';
+    const res = await createBlock(makePostRequest(url, { groupId: 'group-1', personAId: 'a', personBId: 'b' }));
+    expect(res.status).toBe(403);
+  });
+
+  it('returns 400 for a self-block', async () => {
+    const res = await createBlock(makePostRequest(url, { groupId: 'group-1', personAId: 'a', personBId: 'a' }));
+    expect(res.status).toBe(400);
+  });
+
+  it('normalises pair order and creates a block (201)', async () => {
+    mockPrismaDb.block.findFirst.mockResolvedValue(null);
+    mockPrismaDb.block.create.mockResolvedValue({ id: 'blk-1' });
+    const res = await createBlock(makePostRequest(url, { groupId: 'group-1', personAId: 'z', personBId: 'a' }));
+    expect(res.status).toBe(201);
+    expect(mockPrismaDb.block.create).toHaveBeenCalledWith({
+      data: { groupId: 'group-1', personAId: 'a', personBId: 'z' },
+    });
+  });
+
+  it('dedupes an existing block instead of duplicating', async () => {
+    mockPrismaDb.block.findFirst.mockResolvedValue({ id: 'blk-existing' });
+    const res = await createBlock(makePostRequest(url, { groupId: 'group-1', personAId: 'a', personBId: 'b' }));
+    expect(res.status).toBe(200);
+    expect(mockPrismaDb.block.create).not.toHaveBeenCalled();
+  });
+
+  it('deletes a block by id for the owning admin', async () => {
+    mockPrismaDb.block.findUnique.mockResolvedValue({ id: 'blk-1', groupId: 'group-1' });
+    mockPrismaDb.block.delete.mockResolvedValue({ id: 'blk-1' });
+    const res = await deleteBlock(makeDeleteRequest(url + '?id=blk-1'));
+    expect(res.status).toBe(200);
+  });
+
+  it('returns 404 deleting a missing block', async () => {
+    mockPrismaDb.block.findUnique.mockResolvedValue(null);
+    const res = await deleteBlock(makeDeleteRequest(url + '?id=nope'));
+    expect(res.status).toBe(404);
+  });
+});
+
+// ===========================================================================
+// POST/DELETE /api/pins
+// ===========================================================================
+describe('/api/pins', () => {
+  const url = 'http://localhost:3000/api/pins';
+  beforeEach(() => {
+    mockSession.isAdmin = true;
+    mockSession.adminGroupId = 'group-1';
+    (ensureRound as jest.Mock).mockResolvedValue({ id: 'round-1', groupId: 'group-1', year: 2026, status: 'draft' });
+  });
+
+  it('returns 400 when fields are missing', async () => {
+    const res = await createPin(makePostRequest(url, { groupId: 'group-1', year: 2026 }));
+    expect(res.status).toBe(400);
+  });
+
+  it('returns 403 for a non-admin', async () => {
+    delete mockSession.isAdmin;
+    const res = await createPin(makePostRequest(url, { groupId: 'group-1', year: 2026, giverId: 'g', receiverId: 'r' }));
+    expect(res.status).toBe(403);
+  });
+
+  it('returns 400 for a self-pin', async () => {
+    const res = await createPin(makePostRequest(url, { groupId: 'group-1', year: 2026, giverId: 'g', receiverId: 'g' }));
+    expect(res.status).toBe(400);
+  });
+
+  it('returns 400 when the round is already sent', async () => {
+    (ensureRound as jest.Mock).mockResolvedValue({ id: 'round-1', groupId: 'group-1', status: 'sent' });
+    const res = await createPin(makePostRequest(url, { groupId: 'group-1', year: 2026, giverId: 'g', receiverId: 'r' }));
+    expect(res.status).toBe(400);
+  });
+
+  it('upserts a pin keyed by (round, giver) (201)', async () => {
+    mockPrismaDb.forcedPin.upsert.mockResolvedValue({ id: 'pin-1' });
+    const res = await createPin(makePostRequest(url, { groupId: 'group-1', year: 2026, giverId: 'g', receiverId: 'r' }));
+    expect(res.status).toBe(201);
+    expect(mockPrismaDb.forcedPin.upsert).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { roundId_giverId: { roundId: 'round-1', giverId: 'g' } } })
+    );
+  });
+
+  it('deletes a pin by id for the owning admin on an unsent round', async () => {
+    mockPrismaDb.forcedPin.findUnique.mockResolvedValue({ id: 'pin-1', round: { groupId: 'group-1', status: 'draft' } });
+    mockPrismaDb.forcedPin.delete.mockResolvedValue({ id: 'pin-1' });
+    const res = await deletePin(makeDeleteRequest(url + '?id=pin-1'));
+    expect(res.status).toBe(200);
   });
 });
