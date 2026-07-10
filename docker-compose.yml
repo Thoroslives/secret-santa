@@ -3,7 +3,6 @@ services:
     build: .
     ports: ["3001:3000"]
     environment:
-      - MAGIC_LINK_SECRET=${MAGIC_LINK_SECRET}
       - SESSION_SECRET=${SESSION_SECRET}
       # COOKIE_SECURE unset => secure in production. Set false ONLY for tailnet HTTP, via your local .env, never here.
     volumes: ["santa_data:/data"]

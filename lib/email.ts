@@ -1,5 +1,4 @@
 import nodemailer from 'nodemailer';
-import crypto from 'crypto';
 
 interface EmailConfig {
   host: string;
@@ -10,13 +9,6 @@ interface EmailConfig {
     pass: string;
   };
   from: string;
-}
-
-interface MagicLinkData {
-  personId: string;
-  email: string;
-  groupId: string;
-  expires: number;
 }
 
 // Create email transporter
@@ -35,70 +27,14 @@ function createTransporter(): nodemailer.Transporter {
   return nodemailer.createTransport(config);
 }
 
-function getMagicLinkSecret(): string {
-  const secret = process.env.MAGIC_LINK_SECRET;
-  if (!secret) {
-    throw new Error('MAGIC_LINK_SECRET environment variable is required but not set');
-  }
-  return secret;
-}
-
-// Generate magic link token
-export function generateMagicToken(data: MagicLinkData): string {
-  const secret = getMagicLinkSecret();
-  const expiresMinutes = parseInt(process.env.MAGIC_LINK_EXPIRES_MINUTES || '15');
-  const expires = Date.now() + (expiresMinutes * 60 * 1000);
-
-  const payload = {
-    ...data,
-    expires,
-  };
-
-  const payloadString = JSON.stringify(payload);
-  const signature = crypto
-    .createHmac('sha256', secret)
-    .update(payloadString)
-    .digest('hex');
-
-  return Buffer.from(JSON.stringify({ payload: payloadString, signature })).toString('base64url');
-}
-
-// Verify magic link token
-export function verifyMagicToken(token: string): MagicLinkData | null {
-  try {
-    const secret = getMagicLinkSecret();
-    const decoded = JSON.parse(Buffer.from(token, 'base64url').toString());
-    const { payload, signature } = decoded;
-
-    // Verify signature
-    const expectedSignature = crypto
-      .createHmac('sha256', secret)
-      .update(payload)
-      .digest('hex');
-
-    if (signature !== expectedSignature) {
-      return null;
-    }
-
-    const data: MagicLinkData = JSON.parse(payload);
-
-    // Check expiration
-    if (Date.now() > data.expires) {
-      return null;
-    }
-
-    return data;
-  } catch (error) {
-    return null;
-  }
-}
-
-// Send magic link email
-export async function sendMagicLinkEmail(
+// Send a person's durable personal login link (self-service resend). The link
+// never expires - it's the same /p/<token> URL for the lifetime of the person -
+// so there's no countdown messaging here, unlike the old ephemeral magic link.
+export async function sendLoginLinkEmail(
   email: string,
   name: string,
   groupName: string,
-  magicLink: string
+  link: string
 ): Promise<boolean> {
   try {
     const transporter = createTransporter();
@@ -128,15 +64,15 @@ export async function sendMagicLinkEmail(
     </div>
     <div class="content">
       <h2>Hi ${name}! 👋</h2>
-      <p>Click the button below to securely log in to your Secret Santa account:</p>
+      <p>Click the button below to log in to your Secret Santa account:</p>
 
-      <a href="${magicLink}" class="button">
+      <a href="${link}" class="button">
         🎁 Log In to Secret Santa
       </a>
 
-      <p><strong>This link will expire in 15 minutes</strong> for your security.</p>
+      <p>This is your personal login link - bookmark it and use it any time to get back to your wishlist.</p>
 
-      <p>If you didn't request this login link, you can safely ignore this email.</p>
+      <p>If you didn't request this email, you can safely ignore it.</p>
 
       <hr style="margin: 30px 0; border: none; border-top: 1px solid #ddd;">
 
@@ -161,11 +97,11 @@ export async function sendMagicLinkEmail(
 Hi ${name}!
 
 Click this link to log in to your Secret Santa account:
-${magicLink}
+${link}
 
-This link will expire in 15 minutes for your security.
+This is your personal login link - bookmark it and use it any time to get back to your wishlist.
 
-If you didn't request this login link, you can safely ignore this email.
+If you didn't request this email, you can safely ignore it.
 
 What happens next:
 • View and edit your wishlist
@@ -185,7 +121,7 @@ Sent from your family's Secret Santa app
 
     return true;
   } catch (error) {
-    console.error('Failed to send magic link email:', error);
+    console.error('Failed to send login link email:', error);
     return false;
   }
 }

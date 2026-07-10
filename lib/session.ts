@@ -7,7 +7,7 @@ export interface SessionData {
   personName?: string;
   groupId?: string;
   groupName?: string;
-  loginMethod?: "code" | "magic-link" | "link";
+  loginMethod?: "link";
   isLoggedIn?: boolean;
   // Admin session fields
   isAdmin?: boolean;

@@ -101,9 +101,7 @@ jest.mock('@/lib/utils', () => ({
 // Mock @/lib/email
 // ---------------------------------------------------------------------------
 jest.mock('@/lib/email', () => ({
-  generateMagicToken: jest.fn().mockReturnValue('mock-magic-token'),
-  sendMagicLinkEmail: jest.fn().mockResolvedValue(true),
-  verifyMagicToken: jest.fn(),
+  sendLoginLinkEmail: jest.fn().mockResolvedValue(true),
 }));
 
 // ---------------------------------------------------------------------------
@@ -118,15 +116,14 @@ jest.mock('@/lib/secret-santa', () => ({
 // ---------------------------------------------------------------------------
 import bcrypt from 'bcryptjs';
 import { generateGroupInviteCode, generatePersonalLinkToken, validateWishlistItems } from '@/lib/utils';
-import { generateMagicToken, sendMagicLinkEmail, verifyMagicToken } from '@/lib/email';
+import { sendLoginLinkEmail } from '@/lib/email';
 import { generateSecretSantaAssignments } from '@/lib/secret-santa';
 
 import { POST as createGroup } from '@/app/api/groups/create/route';
 import { POST as verifyGroup } from '@/app/api/groups/verify/route';
 import { GET as getGroup, PATCH as patchGroup } from '@/app/api/groups/[id]/route';
-import { POST as loginAuth } from '@/app/api/auth/login/route';
-import { POST as magicLink } from '@/app/api/auth/magic-link/route';
-import { GET as verifyAuth } from '@/app/api/auth/verify/route';
+import { GET as personalLinkLogin } from '@/app/p/[token]/route';
+import { POST as emailLink } from '@/app/api/auth/email-link/route';
 import { GET as getPeople, POST as createPerson } from '@/app/api/people/route';
 import { DELETE as deletePerson, PATCH as patchPerson } from '@/app/api/people/[id]/route';
 import { POST as updateWishlist } from '@/app/api/wishlist/route';
@@ -363,227 +360,179 @@ describe('PATCH /api/groups/[id]', () => {
 });
 
 // ===========================================================================
-// 5. POST /api/auth/login
-// rewritten/removed in Task 6 - login-code auth is replaced by durable personal-link
-// tokens; not brought fully green here (see task-5-report.md).
+// 5. GET /p/[token]
+// durable personal-link login (Task 6). Replaces the old login-code POST -
+// visiting this URL is the only way in; a hit sets the session and redirects
+// straight to /wishlist, a miss bounces to /login?error=invalid-link.
 // ===========================================================================
-describe('POST /api/auth/login', () => {
-  const url = 'http://localhost:3000/api/auth/login';
+describe('GET /p/[token]', () => {
+  const makeParams = (token: string) => ({ params: { token } });
 
-  it('returns 400 when loginCode is missing', async () => {
-    const req = makePostRequest(url, { groupId: 'group-1' });
-    const res = await loginAuth(req);
-    expect(res.status).toBe(400);
-    const json = await res.json();
-    expect(json.error).toBe('Login code is required');
-  });
-
-  it('returns 400 when groupId is missing', async () => {
-    const req = makePostRequest(url, { loginCode: 'CODE1234' });
-    const res = await loginAuth(req);
-    expect(res.status).toBe(400);
-    const json = await res.json();
-    expect(json.error).toBe('Group ID is required');
-  });
-
-  it('returns 401 for invalid login code', async () => {
-    mockPrismaDb.person.findFirst.mockResolvedValue(null);
-
-    const req = makePostRequest(url, { loginCode: 'WRONG123', groupId: 'group-1' });
-    const res = await loginAuth(req);
-    expect(res.status).toBe(401);
-    const json = await res.json();
-    expect(json.error).toBe('Invalid login code for this group');
-  });
-
-  it('returns 200 with person data for valid login', async () => {
+  it('sets session fields and redirects to /wishlist for a valid active token', async () => {
     const personData = {
       id: 'person-1',
       name: 'Alice',
-      loginCode: 'CODE1234',
-      group: { id: 'group-1', name: 'Test', year: 2026 },
-      wishlistItems: [],
-      giverFor: [
-        {
-          id: 'assign-1',
-          receiver: { id: 'person-2', name: 'Bob', wishlistItems: [] },
-        },
-      ],
+      groupId: 'group-1',
+      personalLinkToken: 'tok_abc123',
+      active: true,
+      group: { id: 'group-1', name: 'Test Group' },
     };
     mockPrismaDb.person.findFirst.mockResolvedValue(personData);
 
-    const req = makePostRequest(url, { loginCode: 'code1234', groupId: 'group-1' });
-    const res = await loginAuth(req);
-    expect(res.status).toBe(200);
+    const req = makeGetRequest('http://localhost:3000/p/tok_abc123');
+    const res = await personalLinkLogin(req, makeParams('tok_abc123') as any);
 
-    const json = await res.json();
-    expect(json.person.id).toBe('person-1');
-    expect(json.person.name).toBe('Alice');
-    expect(json.person.assignment).toEqual(personData.giverFor[0]);
-
-    // Verify case-insensitive lookup
     expect(mockPrismaDb.person.findFirst).toHaveBeenCalledWith(
       expect.objectContaining({
-        where: expect.objectContaining({ loginCode: 'CODE1234' }),
+        where: { personalLinkToken: 'tok_abc123', active: true },
       }),
     );
+
+    expect(mockSession.personId).toBe('person-1');
+    expect(mockSession.personName).toBe('Alice');
+    expect(mockSession.groupId).toBe('group-1');
+    expect(mockSession.groupName).toBe('Test Group');
+    expect(mockSession.loginMethod).toBe('link');
+    expect(mockSession.isLoggedIn).toBe(true);
+    expect(mockSession.save).toHaveBeenCalled();
+
+    expect(res.status).toBe(307);
+    expect(res.headers.get('location')).toContain('/wishlist');
+  });
+
+  it('redirects to /login?error=invalid-link when the token has no active match', async () => {
+    mockPrismaDb.person.findFirst.mockResolvedValue(null);
+
+    const req = makeGetRequest('http://localhost:3000/p/does-not-exist');
+    const res = await personalLinkLogin(req, makeParams('does-not-exist') as any);
+
+    expect(res.status).toBe(307);
+    expect(res.headers.get('location')).toContain('/login?error=invalid-link');
+    expect(mockSession.save).not.toHaveBeenCalled();
   });
 });
 
 // ===========================================================================
-// 6. POST /api/auth/magic-link
-// rewritten/removed in Task 6 - magic-link auth is replaced by durable personal-link
-// tokens; not brought fully green here (see task-5-report.md).
+// 6. POST /api/auth/email-link
+// self-service resend of a person's durable /p/<token> link (Task 6). Replaces
+// the old ephemeral magic-link POST - always answers with the same generic
+// message so the response never reveals whether the email is registered.
 // ===========================================================================
-describe('POST /api/auth/magic-link', () => {
-  const url = 'http://localhost:3000/api/auth/magic-link';
+describe('POST /api/auth/email-link', () => {
+  const url = 'http://localhost:3000/api/auth/email-link';
+
+  beforeEach(() => {
+    process.env.NEXTAUTH_URL = 'http://localhost:3000';
+  });
+
+  afterEach(() => {
+    delete process.env.NEXTAUTH_URL;
+  });
 
   it('returns 400 when fields are missing', async () => {
     const req = makePostRequest(url, { email: 'test@example.com' });
-    const res = await magicLink(req);
+    const res = await emailLink(req);
     expect(res.status).toBe(400);
     const json = await res.json();
     expect(json.error).toBe('Email and group ID are required');
   });
 
-  it('returns 200 even when person is not found (security)', async () => {
-    mockPrismaOwn.person.findUnique.mockResolvedValue(null);
+  it('returns the generic message and does not email when the person is not found (security)', async () => {
+    mockPrismaDb.person.findFirst.mockResolvedValue(null);
 
-    const req = makePostRequest(url, { email: 'unknown@example.com', groupId: 'group-1' });
-    const res = await magicLink(req);
+    const req = new NextRequest(url, {
+      method: 'POST',
+      body: JSON.stringify({ email: 'unknown@example.com', groupId: 'group-1' }),
+      headers: { 'Content-Type': 'application/json', 'x-forwarded-for': '10.0.1.1' },
+    });
+    const res = await emailLink(req);
     expect(res.status).toBe(200);
     const json = await res.json();
     expect(json.message).toBe('If this email is registered, a login link has been sent.');
-    expect(sendMagicLinkEmail).not.toHaveBeenCalled();
+    expect(sendLoginLinkEmail).not.toHaveBeenCalled();
   });
 
-  it('returns 200 and sends email for valid person', async () => {
+  it('returns the same generic message and emails the durable link for a known active person', async () => {
     const personData = {
       id: 'person-1',
       name: 'Alice',
       email: 'alice@example.com',
       groupId: 'group-1',
+      personalLinkToken: 'tok_abc123',
+      active: true,
       group: { id: 'group-1', name: 'Test Group' },
     };
-    mockPrismaOwn.person.findUnique.mockResolvedValue(personData);
-    (sendMagicLinkEmail as jest.Mock).mockResolvedValue(true);
+    mockPrismaDb.person.findFirst.mockResolvedValue(personData);
 
-    const req = makePostRequest(url, { email: 'Alice@Example.com', groupId: 'group-1' });
-    const res = await magicLink(req);
+    const req = new NextRequest(url, {
+      method: 'POST',
+      body: JSON.stringify({ email: 'Alice@Example.com', groupId: 'group-1' }),
+      headers: { 'Content-Type': 'application/json', 'x-forwarded-for': '10.0.1.2' },
+    });
+    const res = await emailLink(req);
     expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.message).toBe('If this email is registered, a login link has been sent.');
 
-    expect(generateMagicToken).toHaveBeenCalledWith(
+    // Verify case-insensitive lookup
+    expect(mockPrismaDb.person.findFirst).toHaveBeenCalledWith(
       expect.objectContaining({
-        personId: 'person-1',
-        email: 'alice@example.com',
-        groupId: 'group-1',
+        where: { groupId: 'group-1', email: 'alice@example.com', active: true },
       }),
     );
-    expect(sendMagicLinkEmail).toHaveBeenCalledWith(
+    expect(sendLoginLinkEmail).toHaveBeenCalledWith(
       'alice@example.com',
       'Alice',
       'Test Group',
-      expect.stringContaining('mock-magic-token'),
+      expect.stringContaining('/p/tok_abc123'),
     );
   });
 
-  it('returns 500 when email send fails', async () => {
+  it('returns the generic message even when the email send fails (no enumeration)', async () => {
     const personData = {
       id: 'person-1',
       name: 'Alice',
       email: 'alice@example.com',
       groupId: 'group-1',
+      personalLinkToken: 'tok_abc123',
+      active: true,
       group: { id: 'group-1', name: 'Test Group' },
     };
-    mockPrismaOwn.person.findUnique.mockResolvedValue(personData);
-    (sendMagicLinkEmail as jest.Mock).mockResolvedValue(false);
+    mockPrismaDb.person.findFirst.mockResolvedValue(personData);
+    (sendLoginLinkEmail as jest.Mock).mockRejectedValueOnce(new Error('SMTP down'));
 
-    const req = makePostRequest(url, { email: 'alice@example.com', groupId: 'group-1' });
-    const res = await magicLink(req);
-    expect(res.status).toBe(500);
-    const json = await res.json();
-    expect(json.error).toBe('Failed to send email. Please try again later.');
-  });
-});
-
-// ===========================================================================
-// 7. GET /api/auth/verify
-// rewritten/removed in Task 6 - magic-link verify is replaced by durable personal-link
-// tokens; not brought fully green here (see task-5-report.md).
-// ===========================================================================
-describe('GET /api/auth/verify', () => {
-  it('returns 400 when token is missing', async () => {
-    const req = makeGetRequest('http://localhost:3000/api/auth/verify');
-    const res = await verifyAuth(req);
-    expect(res.status).toBe(400);
-    const json = await res.json();
-    expect(json.error).toBe('Invalid or missing token');
-  });
-
-  it('returns 400 when token is invalid', async () => {
-    (verifyMagicToken as jest.Mock).mockReturnValue(null);
-
-    const req = makeGetRequest('http://localhost:3000/api/auth/verify?token=bad-token');
-    const res = await verifyAuth(req);
-    expect(res.status).toBe(400);
-    const json = await res.json();
-    expect(json.error).toBe('Invalid or expired token');
-  });
-
-  it('returns 400 when person data does not match token', async () => {
-    (verifyMagicToken as jest.Mock).mockReturnValue({
-      personId: 'person-1',
-      email: 'alice@example.com',
-      groupId: 'group-1',
-      expires: Date.now() + 60000,
+    const req = new NextRequest(url, {
+      method: 'POST',
+      body: JSON.stringify({ email: 'alice@example.com', groupId: 'group-1' }),
+      headers: { 'Content-Type': 'application/json', 'x-forwarded-for': '10.0.1.3' },
     });
-    mockPrismaOwn.person.findUnique.mockResolvedValue({
-      id: 'person-1',
-      email: 'different@example.com', // mismatch
-      groupId: 'group-1',
-      name: 'Alice',
-      group: { name: 'Test' },
-    });
-
-    const req = makeGetRequest('http://localhost:3000/api/auth/verify?token=some-token');
-    const res = await verifyAuth(req);
-    expect(res.status).toBe(400);
-    const json = await res.json();
-    expect(json.error).toBe('Invalid token data');
-  });
-
-  it('returns 200 with session data for valid token', async () => {
-    const tokenData = {
-      personId: 'person-1',
-      email: 'alice@example.com',
-      groupId: 'group-1',
-      expires: Date.now() + 60000,
-    };
-    (verifyMagicToken as jest.Mock).mockReturnValue(tokenData);
-    mockPrismaOwn.person.findUnique.mockResolvedValue({
-      id: 'person-1',
-      email: 'alice@example.com',
-      groupId: 'group-1',
-      name: 'Alice',
-      group: { id: 'group-1', name: 'Test Group' },
-    });
-
-    const req = makeGetRequest('http://localhost:3000/api/auth/verify?token=valid-token');
-    const res = await verifyAuth(req);
+    const res = await emailLink(req);
     expect(res.status).toBe(200);
     const json = await res.json();
-    expect(json.success).toBe(true);
-    expect(json.person.id).toBe('person-1');
-    expect(json.person.name).toBe('Alice');
-    expect(json.sessionData.loginMethod).toBe('magic-link');
-    expect(json.sessionData.personId).toBe('person-1');
-    expect(json.sessionData.groupId).toBe('group-1');
-    expect(json.sessionData.groupName).toBe('Test Group');
+    expect(json.message).toBe('If this email is registered, a login link has been sent.');
+  });
+
+  it('returns 429 once the rate limit is exceeded', async () => {
+    mockPrismaDb.person.findFirst.mockResolvedValue(null);
+    const ip = '10.0.1.99';
+    const makeRateLimitedReq = () => new NextRequest(url, {
+      method: 'POST',
+      body: JSON.stringify({ email: 'alice@example.com', groupId: 'group-1' }),
+      headers: { 'Content-Type': 'application/json', 'x-forwarded-for': ip },
+    });
+
+    for (let i = 0; i < 5; i++) {
+      const res = await emailLink(makeRateLimitedReq());
+      expect(res.status).toBe(200);
+    }
+
+    const res = await emailLink(makeRateLimitedReq());
+    expect(res.status).toBe(429);
   });
 });
 
 // ===========================================================================
-// 8. GET /api/people
+// 7. GET /api/people
 // ===========================================================================
 describe('GET /api/people', () => {
   it('returns 400 when groupId is missing', async () => {
