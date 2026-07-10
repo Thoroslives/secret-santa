@@ -8,8 +8,10 @@ interface RateLimitEntry {
 // In-memory store for rate limiting
 const rateLimitStore = new Map<string, RateLimitEntry>();
 
-// Clean up expired entries periodically
-setInterval(() => {
+// Clean up expired entries periodically. unref() so this timer never keeps
+// the Node process (or the jest runner) alive on its own - it only fires while
+// something else is keeping the event loop running.
+const cleanupTimer = setInterval(() => {
   const now = Date.now();
   for (const [key, entry] of rateLimitStore) {
     if (now > entry.resetTime) {
@@ -17,6 +19,7 @@ setInterval(() => {
     }
   }
 }, 60 * 1000); // Clean up every minute
+cleanupTimer.unref?.();
 
 interface RateLimitConfig {
   windowMs: number; // Time window in milliseconds
