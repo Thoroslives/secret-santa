@@ -51,9 +51,7 @@ COPY --from=builder --chown=nextjs:nodejs /app/app/generated ./app/generated
 # Copy prisma config and node_modules for runtime dependencies
 COPY --from=builder /app/node_modules/dotenv ./node_modules/dotenv
 
-RUN apk add --no-cache su-exec
-COPY --from=builder /app/node_modules/prisma ./node_modules/prisma
-COPY --from=builder /app/node_modules/@prisma ./node_modules/@prisma
+RUN apk add --no-cache su-exec && npm install -g prisma@6.18.0
 COPY docker-entrypoint.sh ./docker-entrypoint.sh
 RUN chmod +x ./docker-entrypoint.sh
 ENV DATABASE_URL="file:/data/santa.db" PORT=3000 HOSTNAME="0.0.0.0"
