@@ -34,14 +34,20 @@ const mockPrismaDb = {
   block: {
     findFirst: jest.fn(),
     findUnique: jest.fn(),
+    findMany: jest.fn(),
     create: jest.fn(),
     delete: jest.fn(),
   },
   forcedPin: {
     findUnique: jest.fn(),
+    findMany: jest.fn(),
     upsert: jest.fn(),
     delete: jest.fn(),
   },
+  round: {
+    update: jest.fn(),
+  },
+  $transaction: jest.fn(),
   $disconnect: jest.fn(),
 };
 
@@ -121,6 +127,7 @@ jest.mock('@/lib/email', () => ({
 // ---------------------------------------------------------------------------
 jest.mock('@/lib/secret-santa', () => ({
   generateSecretSantaAssignments: jest.fn(),
+  generateDraw: jest.fn(),
 }));
 
 // ---------------------------------------------------------------------------
@@ -137,7 +144,7 @@ import bcrypt from 'bcryptjs';
 import { ensureRound } from '@/lib/rounds';
 import { generateGroupInviteCode, generatePersonalLinkToken, validateWishlistItems } from '@/lib/utils';
 import { sendLoginLinkEmail } from '@/lib/email';
-import { generateSecretSantaAssignments } from '@/lib/secret-santa';
+import { generateSecretSantaAssignments, generateDraw } from '@/lib/secret-santa';
 
 import { POST as createGroup } from '@/app/api/groups/create/route';
 import { POST as verifyGroup } from '@/app/api/groups/verify/route';
@@ -152,6 +159,7 @@ import { GET as getAssignments, DELETE as deleteAssignments } from '@/app/api/as
 import { POST as adminAuth } from '@/app/api/admin/auth/route';
 import { POST as createBlock, DELETE as deleteBlock } from '@/app/api/blocks/route';
 import { POST as createPin, DELETE as deletePin } from '@/app/api/pins/route';
+import { POST as generateRound } from '@/app/api/rounds/generate/route';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -1238,5 +1246,83 @@ describe('/api/pins', () => {
     mockPrismaDb.forcedPin.delete.mockResolvedValue({ id: 'pin-1' });
     const res = await deletePin(makeDeleteRequest(url + '?id=pin-1'));
     expect(res.status).toBe(200);
+  });
+});
+
+// ===========================================================================
+// POST /api/rounds/generate
+// ===========================================================================
+describe('POST /api/rounds/generate', () => {
+  const url = 'http://localhost:3000/api/rounds/generate';
+  const threePeople = [
+    { id: 'p-1', name: 'Alice' },
+    { id: 'p-2', name: 'Bob' },
+    { id: 'p-3', name: 'Cara' },
+  ];
+  beforeEach(() => {
+    mockSession.isAdmin = true;
+    mockSession.adminGroupId = 'group-1';
+    (ensureRound as jest.Mock).mockResolvedValue({ id: 'round-1', groupId: 'group-1', year: 2026, status: 'draft' });
+    mockPrismaDb.block.findMany.mockResolvedValue([]);
+    mockPrismaDb.forcedPin.findMany.mockResolvedValue([]);
+  });
+
+  it('returns 400 when groupId is missing', async () => {
+    const res = await generateRound(makePostRequest(url, {}));
+    expect(res.status).toBe(400);
+  });
+
+  it('returns 403 for a non-admin', async () => {
+    delete mockSession.isAdmin;
+    const res = await generateRound(makePostRequest(url, { groupId: 'group-1' }));
+    expect(res.status).toBe(403);
+  });
+
+  it('refuses to regenerate a sent round', async () => {
+    (ensureRound as jest.Mock).mockResolvedValue({ id: 'round-1', status: 'sent' });
+    const res = await generateRound(makePostRequest(url, { groupId: 'group-1' }));
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toMatch(/already been sent/i);
+  });
+
+  it('returns 400 with fewer than 3 active people', async () => {
+    mockPrismaDb.person.findMany.mockResolvedValue([{ id: 'p-1', name: 'Alice' }, { id: 'p-2', name: 'Bob' }]);
+    const res = await generateRound(makePostRequest(url, { groupId: 'group-1' }));
+    expect(res.status).toBe(400);
+  });
+
+  it('surfaces infeasibility and does NOT flip the round', async () => {
+    mockPrismaDb.person.findMany.mockResolvedValue(threePeople);
+    (generateDraw as jest.Mock).mockReturnValue({ ok: false, reason: 'No valid draw is possible under the current rules.' });
+    const res = await generateRound(makePostRequest(url, { groupId: 'group-1' }));
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toMatch(/no valid draw/i);
+    expect(mockPrismaDb.$transaction).not.toHaveBeenCalled();
+    expect(mockPrismaDb.round.update).not.toHaveBeenCalled();
+  });
+
+  it('persists the draw and flips the round to generated on success', async () => {
+    mockPrismaDb.person.findMany.mockResolvedValue(threePeople);
+    (generateDraw as jest.Mock).mockReturnValue({
+      ok: true,
+      assignments: [
+        { giverId: 'p-1', receiverId: 'p-2' },
+        { giverId: 'p-2', receiverId: 'p-3' },
+        { giverId: 'p-3', receiverId: 'p-1' },
+      ],
+    });
+    mockPrismaDb.$transaction.mockResolvedValue([]);
+    const named = [{ id: 'a-1', giver: { name: 'Alice' }, receiver: { name: 'Bob' } }];
+    mockPrismaDb.assignment.findMany.mockResolvedValue(named);
+
+    const res = await generateRound(makePostRequest(url, { groupId: 'group-1' }));
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.status).toBe('generated');
+    expect(json.assignments).toEqual(named);
+    expect(mockPrismaDb.$transaction).toHaveBeenCalled();
+    expect(mockPrismaDb.round.update).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { id: 'round-1' }, data: { status: 'generated' } })
+    );
   });
 });
