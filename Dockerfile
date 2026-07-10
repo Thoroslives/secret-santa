@@ -54,7 +54,6 @@ COPY --from=builder /app/node_modules/dotenv ./node_modules/dotenv
 RUN apk add --no-cache su-exec
 COPY --from=builder /app/node_modules/prisma ./node_modules/prisma
 COPY --from=builder /app/node_modules/@prisma ./node_modules/@prisma
-COPY --from=builder /app/node_modules/.bin/prisma ./node_modules/.bin/prisma
 COPY docker-entrypoint.sh ./docker-entrypoint.sh
 RUN chmod +x ./docker-entrypoint.sh
 ENV DATABASE_URL="file:/data/santa.db" PORT=3000 HOSTNAME="0.0.0.0"
