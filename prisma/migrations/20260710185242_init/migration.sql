@@ -4,6 +4,9 @@ CREATE TABLE "Group" (
     "name" TEXT NOT NULL,
     "inviteCode" TEXT NOT NULL,
     "year" INTEGER NOT NULL DEFAULT 2024,
+    "plan" TEXT NOT NULL DEFAULT 'free',
+    "budgetAmount" REAL,
+    "budgetCurrency" TEXT NOT NULL DEFAULT 'USD',
     "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" DATETIME NOT NULL
 );
@@ -13,6 +16,7 @@ CREATE TABLE "Person" (
     "id" TEXT NOT NULL PRIMARY KEY,
     "groupId" TEXT NOT NULL,
     "name" TEXT NOT NULL,
+    "email" TEXT,
     "loginCode" TEXT NOT NULL,
     "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT "Person_groupId_fkey" FOREIGN KEY ("groupId") REFERENCES "Group" ("id") ON DELETE CASCADE ON UPDATE CASCADE
@@ -62,7 +66,13 @@ CREATE INDEX "Person_groupId_idx" ON "Person"("groupId");
 CREATE INDEX "Person_loginCode_idx" ON "Person"("loginCode");
 
 -- CreateIndex
+CREATE INDEX "Person_email_idx" ON "Person"("email");
+
+-- CreateIndex
 CREATE UNIQUE INDEX "Person_groupId_loginCode_key" ON "Person"("groupId", "loginCode");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "Person_groupId_email_key" ON "Person"("groupId", "email");
 
 -- CreateIndex
 CREATE INDEX "WishlistItem_personId_idx" ON "WishlistItem"("personId");

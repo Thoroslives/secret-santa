@@ -10,7 +10,7 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
+  provider = "sqlite"
   url      = env("DATABASE_URL")
 }
 
@@ -30,7 +30,6 @@ model Group {
   people       Person[]
   assignments  Assignment[]
   adminConfig  AdminConfig?
-  subscription Subscription?
 }
 
 model Person {
@@ -91,21 +90,4 @@ model AdminConfig {
   updatedAt      DateTime @updatedAt
 
   group Group @relation(fields: [groupId], references: [id], onDelete: Cascade)
-}
-
-model Subscription {
-  id                     String    @id @default(cuid())
-  groupId                String    @unique
-  stripeCustomerId       String?
-  stripeSubscriptionId   String?   @unique
-  plan                   String    @default("free") // free, plus, pro
-  status                 String    @default("active") // active, canceled, past_due, unpaid
-  currentPeriodEnd       DateTime?
-  createdAt              DateTime  @default(now())
-  updatedAt              DateTime  @updatedAt
-
-  group Group @relation(fields: [groupId], references: [id], onDelete: Cascade)
-
-  @@index([stripeCustomerId])
-  @@index([stripeSubscriptionId])
 }
