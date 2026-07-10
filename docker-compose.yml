@@ -1,40 +1,10 @@
-version: '3.8'
-
 services:
-  # PostgreSQL Database
-  db:
-    image: postgres:15-alpine
-    container_name: secret-santa-db
-    restart: unless-stopped
-    environment:
-      POSTGRES_USER: secretsanta
-      POSTGRES_PASSWORD: ${DB_PASSWORD:-SecretSanta2024DBPass}
-      POSTGRES_DB: secretsanta
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U secretsanta"]
-      interval: 5s
-      timeout: 5s
-      retries: 5
-
-  # Next.js Application
   app:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    container_name: secret-santa-app
-    restart: unless-stopped
-    ports:
-      - "3001:3000"
+    build: .
+    ports: ["3001:3000"]
     environment:
-      - DATABASE_URL=postgresql://secretsanta:${DB_PASSWORD:-SecretSanta2024DBPass}@db:5432/secretsanta?schema=public
-      - NODE_ENV=production
-    depends_on:
-      db:
-        condition: service_healthy
-    command: ["node", "server.js"]
-
-volumes:
-  postgres_data:
-    driver: local
+      - MAGIC_LINK_SECRET=${MAGIC_LINK_SECRET}
+      - SESSION_SECRET=${SESSION_SECRET}
+      # COOKIE_SECURE unset => secure in production. Set false ONLY for tailnet HTTP, via your local .env, never here.
+    volumes: ["santa_data:/data"]
+volumes: { santa_data: {} }
