@@ -22,7 +22,6 @@ const participantApiRoutes = [
 const adminApiRoutes = [
   "/api/people",
   "/api/assignments",
-  "/api/assignments/generate",
   "/api/blocks",
   "/api/pins",
   "/api/rounds",

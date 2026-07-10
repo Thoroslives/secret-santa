@@ -126,7 +126,6 @@ jest.mock('@/lib/email', () => ({
 // Mock @/lib/secret-santa
 // ---------------------------------------------------------------------------
 jest.mock('@/lib/secret-santa', () => ({
-  generateSecretSantaAssignments: jest.fn(),
   generateDraw: jest.fn(),
 }));
 
@@ -144,7 +143,7 @@ import bcrypt from 'bcryptjs';
 import { ensureRound } from '@/lib/rounds';
 import { generateGroupInviteCode, generatePersonalLinkToken, validateWishlistItems } from '@/lib/utils';
 import { sendLoginLinkEmail } from '@/lib/email';
-import { generateSecretSantaAssignments, generateDraw } from '@/lib/secret-santa';
+import { generateDraw } from '@/lib/secret-santa';
 
 import { POST as createGroup } from '@/app/api/groups/create/route';
 import { POST as verifyGroup } from '@/app/api/groups/verify/route';
@@ -154,7 +153,6 @@ import { POST as emailLink } from '@/app/api/auth/email-link/route';
 import { GET as getPeople, POST as createPerson } from '@/app/api/people/route';
 import { DELETE as deletePerson, PATCH as patchPerson } from '@/app/api/people/[id]/route';
 import { POST as updateWishlist } from '@/app/api/wishlist/route';
-import { POST as generateAssignments } from '@/app/api/assignments/generate/route';
 import { GET as getAssignments, DELETE as deleteAssignments } from '@/app/api/assignments/route';
 import { POST as adminAuth } from '@/app/api/admin/auth/route';
 import { POST as createBlock, DELETE as deleteBlock } from '@/app/api/blocks/route';
@@ -865,86 +863,6 @@ describe('POST /api/wishlist', () => {
         order: 0,
       },
     });
-  });
-});
-
-// ===========================================================================
-// 12. POST /api/assignments/generate
-// ===========================================================================
-describe('POST /api/assignments/generate', () => {
-  const url = 'http://localhost:3000/api/assignments/generate';
-
-  beforeEach(() => {
-    mockSession.isAdmin = true;
-    mockSession.adminGroupId = 'group-1';
-  });
-
-  it('returns 400 when groupId is missing', async () => {
-    const req = makePostRequest(url, {});
-    const res = await generateAssignments(req);
-    expect(res.status).toBe(400);
-    const json = await res.json();
-    expect(json.error).toBe('Group ID is required');
-  });
-
-  it('returns 400 when assignments already exist', async () => {
-    mockPrismaDb.assignment.findMany.mockResolvedValue([{ id: 'a-1' }]);
-
-    const req = makePostRequest(url, { groupId: 'group-1' });
-    const res = await generateAssignments(req);
-    expect(res.status).toBe(400);
-    const json = await res.json();
-    expect(json.error).toContain('Assignments already exist');
-  });
-
-  it('returns 400 when there are too few people', async () => {
-    mockPrismaDb.assignment.findMany.mockResolvedValue([]);
-    mockPrismaDb.person.findMany.mockResolvedValue([
-      { id: 'p-1', name: 'Alice' },
-      { id: 'p-2', name: 'Bob' },
-    ]);
-
-    const req = makePostRequest(url, { groupId: 'group-1' });
-    const res = await generateAssignments(req);
-    expect(res.status).toBe(400);
-    const json = await res.json();
-    expect(json.error).toContain('at least 3 people');
-  });
-
-  it('returns 200 on successful generation', async () => {
-    const people = [
-      { id: 'p-1', name: 'Alice' },
-      { id: 'p-2', name: 'Bob' },
-      { id: 'p-3', name: 'Charlie' },
-    ];
-    const assignmentPairs = [
-      { giverId: 'p-1', receiverId: 'p-2' },
-      { giverId: 'p-2', receiverId: 'p-3' },
-      { giverId: 'p-3', receiverId: 'p-1' },
-    ];
-
-    mockPrismaDb.assignment.findMany.mockResolvedValue([]);
-    mockPrismaDb.person.findMany.mockResolvedValue(people);
-    (generateSecretSantaAssignments as jest.Mock).mockReturnValue(assignmentPairs);
-
-    const createdAssignments = assignmentPairs.map((a, i) => ({
-      id: `assign-${i}`,
-      ...a,
-      giver: people.find((p) => p.id === a.giverId),
-      receiver: people.find((p) => p.id === a.receiverId),
-    }));
-    mockPrismaDb.assignment.create
-      .mockResolvedValueOnce(createdAssignments[0])
-      .mockResolvedValueOnce(createdAssignments[1])
-      .mockResolvedValueOnce(createdAssignments[2]);
-
-    const req = makePostRequest(url, { groupId: 'group-1' });
-    const res = await generateAssignments(req);
-    expect(res.status).toBe(200);
-    const json = await res.json();
-    expect(json.assignments).toHaveLength(3);
-    expect(json.count).toBe(3);
-    expect(generateSecretSantaAssignments).toHaveBeenCalledWith(people);
   });
 });
 

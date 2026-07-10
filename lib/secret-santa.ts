@@ -225,17 +225,3 @@ export function generateDraw(
     })),
   };
 }
-
-/**
- * @deprecated Transitional shim over generateDraw for the legacy
- * app/api/assignments/generate route. It keeps the build green while the
- * schema and routes migrate; the route switches to generateDraw directly in
- * the rounds/generate rework and this shim is deleted with the old route.
- * Do not use in new code.
- */
-export function generateSecretSantaAssignments(
-  people: DrawPerson[]
-): Array<{ giverId: string; receiverId: string }> | null {
-  const result = generateDraw(people);
-  return result.ok ? result.assignments : null;
-}
