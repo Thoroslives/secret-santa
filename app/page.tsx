@@ -450,7 +450,7 @@ export default function Home() {
                 <div className="text-4xl mb-4">✨</div>
                 <h3 className="text-lg font-bold text-santa-gold mb-2">No Registration Required</h3>
                 <p className="text-gray-400 text-sm">
-                  No sign-ups, no accounts needed. Free for groups up to 10 people. Need more? Unlock unlimited participants for a one-time $10 payment.
+                  No sign-ups, no accounts needed. Just create a group and go.
                 </p>
               </div>
             </div>
