@@ -20,6 +20,7 @@ export async function GET() {
         },
         giverFor: {
           include: {
+            round: true,
             receiver: {
               include: {
                 wishlistItems: {
@@ -40,9 +41,13 @@ export async function GET() {
       return NextResponse.json({ error: "Person not found" }, { status: 404 });
     }
 
+    // Only reveal the match once the round has been sent (blind before send).
+    const mine = person.giverFor[0];
+    const assignment = mine && mine.round?.status === "sent" ? mine : null;
+
     return NextResponse.json({
       wishlistItems: person.wishlistItems,
-      assignment: person.giverFor[0] || null,
+      assignment,
     });
   } catch (error) {
     console.error("Person data error:", error);

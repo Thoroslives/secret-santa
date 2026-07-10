@@ -23,6 +23,7 @@ const mockPrismaDb = {
     create: jest.fn(),
   },
   assignment: {
+    findFirst: jest.fn(),
     findMany: jest.fn(),
     create: jest.fn(),
     deleteMany: jest.fn(),
@@ -973,6 +974,52 @@ describe('GET /api/assignments', () => {
     expect(res.status).toBe(200);
     const json = await res.json();
     expect(json.assignments).toEqual(assignments);
+  });
+
+  it('participant sees only their OWN match and only once sent', async () => {
+    delete mockSession.isAdmin;
+    delete mockSession.adminGroupId;
+    mockSession.isLoggedIn = true;
+    mockSession.personId = 'p-1';
+    mockSession.groupId = 'group-1';
+    mockPrismaDb.assignment.findFirst.mockResolvedValue({
+      id: 'a-1',
+      giverId: 'p-1',
+      receiver: { id: 'p-2', name: 'Bob', wishlistItems: [] },
+      round: { status: 'sent' },
+    });
+    const res = await getAssignments(makeGetRequest('http://localhost:3000/api/assignments?groupId=group-1'));
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.ready).toBe(true);
+    expect(json.assignment.giverId).toBe('p-1');
+    // scoped to the caller only, never the whole table
+    expect(mockPrismaDb.assignment.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({ where: expect.objectContaining({ giverId: 'p-1' }) })
+    );
+    expect(mockPrismaDb.assignment.findMany).not.toHaveBeenCalled();
+  });
+
+  it('participant sees nothing before the round is sent', async () => {
+    delete mockSession.isAdmin;
+    mockSession.isLoggedIn = true;
+    mockSession.personId = 'p-1';
+    mockSession.groupId = 'group-1';
+    mockPrismaDb.assignment.findFirst.mockResolvedValue({ id: 'a-1', giverId: 'p-1', round: { status: 'generated' } });
+    const res = await getAssignments(makeGetRequest('http://localhost:3000/api/assignments?groupId=group-1'));
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.ready).toBe(false);
+    expect(json.assignment).toBeNull();
+  });
+
+  it('forbids a participant querying another group', async () => {
+    delete mockSession.isAdmin;
+    mockSession.isLoggedIn = true;
+    mockSession.personId = 'p-9';
+    mockSession.groupId = 'other-group';
+    const res = await getAssignments(makeGetRequest('http://localhost:3000/api/assignments?groupId=group-1'));
+    expect(res.status).toBe(403);
   });
 });
 

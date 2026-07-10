@@ -14,28 +14,41 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: "Group ID is required" }, { status: 400 });
     }
 
-    // Verify user has access to this group
-    const userGroupId = session.isAdmin ? session.adminGroupId : session.groupId;
-    if (userGroupId !== groupId) {
-      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    // ADMIN: sees every pair for the round (this is the review view).
+    if (session.isAdmin) {
+      if (session.adminGroupId !== groupId) {
+        return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+      }
+      const assignments = await prisma.assignment.findMany({
+        where: { groupId, year },
+        include: {
+          giver: true,
+          receiver: { include: { wishlistItems: { orderBy: { order: "asc" } } } },
+          round: true,
+        },
+        orderBy: { giver: { name: "asc" } },
+      });
+      return NextResponse.json({ assignments });
     }
 
-    const assignments = await prisma.assignment.findMany({
-      where: { groupId, year },
+    // PARTICIPANT: only their OWN match, and only once the round is sent.
+    // Middleware allows any logged-in group member to GET this route, so the
+    // row-level filter here is what actually prevents one member from reading
+    // the whole pairing table.
+    if (!session.isLoggedIn || session.groupId !== groupId) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
+    const mine = await prisma.assignment.findFirst({
+      where: { groupId, year, giverId: session.personId },
       include: {
-        giver: true,
-        receiver: {
-          include: {
-            wishlistItems: {
-              orderBy: { order: "asc" },
-            },
-          },
-        },
+        receiver: { include: { wishlistItems: { orderBy: { order: "asc" } } } },
+        round: true,
       },
-      orderBy: { giver: { name: "asc" } },
     });
-
-    return NextResponse.json({ assignments });
+    if (!mine || mine.round?.status !== "sent") {
+      return NextResponse.json({ assignment: null, ready: false });
+    }
+    return NextResponse.json({ assignment: mine, ready: true });
   } catch (error) {
     console.error("Error fetching assignments:", error);
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
