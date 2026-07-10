@@ -16,11 +16,17 @@ export interface SessionData {
   adminInviteCode?: string;
 }
 
+export function cookieSecure(env: NodeJS.ProcessEnv = process.env): boolean {
+  return env.COOKIE_SECURE !== undefined
+    ? env.COOKIE_SECURE === "true"
+    : env.NODE_ENV === "production";
+}
+
 const sessionOptions = {
   password: process.env.SESSION_SECRET || process.env.MAGIC_LINK_SECRET || "this-is-a-development-only-secret-that-must-be-changed",
   cookieName: "secret-santa-session",
   cookieOptions: {
-    secure: process.env.NODE_ENV === "production",
+    secure: cookieSecure(),
     httpOnly: true,
     sameSite: "lax" as const,
     maxAge: 60 * 60 * 24, // 24 hours

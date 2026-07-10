@@ -1,12 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getIronSession } from "iron-session";
-import { SessionData } from "@/lib/session";
+import { SessionData, cookieSecure } from "@/lib/session";
 
 const sessionOptions = {
   password: process.env.SESSION_SECRET || process.env.MAGIC_LINK_SECRET || "this-is-a-development-only-secret-that-must-be-changed",
   cookieName: "secret-santa-session",
   cookieOptions: {
-    secure: process.env.NODE_ENV === "production",
+    secure: cookieSecure(),
     httpOnly: true,
     sameSite: "lax" as const,
   },
