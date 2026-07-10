@@ -604,6 +604,5 @@ test.describe("Pricing Section", () => {
     await page.goto("/");
     await expect(page.getByText(/Simple Pricing/i).first()).toBeVisible();
     await expect(page.getByText(/\$0/).first()).toBeVisible();
-    await expect(page.getByText(/\$10/).first()).toBeVisible();
   });
 });

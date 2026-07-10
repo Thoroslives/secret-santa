@@ -56,13 +56,7 @@ export default function Home() {
         "@type": "Offer",
         "price": "0",
         "priceCurrency": "USD",
-        "description": "Free plan — up to 10 participants per group"
-      },
-      {
-        "@type": "Offer",
-        "price": "10",
-        "priceCurrency": "USD",
-        "description": "Unlimited plan — unlimited participants, one-time payment"
+        "description": "Free — unlimited groups and participants"
       }
     ],
     "featureList": [
@@ -116,7 +110,7 @@ export default function Home() {
         "name": "Is this Secret Santa app free?",
         "acceptedAnswer": {
           "@type": "Answer",
-          "text": "Yes, our Secret Santa generator is free for groups of up to 10 participants. If you need more than 10 people in a group, you can unlock unlimited participants with a one-time $10 payment."
+          "text": "Yes, our Secret Santa generator is completely free to use, with no limit on the number of groups or participants."
         }
       },
       {
@@ -132,7 +126,7 @@ export default function Home() {
         "name": "How many people can participate in a Secret Santa group?",
         "acceptedAnswer": {
           "@type": "Answer",
-          "text": "You need a minimum of 3 people to generate assignments. The free plan supports up to 10 participants per group. For larger groups, you can unlock unlimited participants with a one-time $10 payment."
+          "text": "You need a minimum of 3 people to generate assignments. There's no maximum — invite as many participants as you like."
         }
       },
       {
@@ -241,7 +235,7 @@ export default function Home() {
     },
     {
       q: "Is this Secret Santa app free?",
-      a: "Yes, our Secret Santa generator is free for groups of up to 10 participants. You get unlimited groups, wishlist management, and random assignments at no cost. If you need more than 10 people in a group, you can unlock unlimited participants with a one-time $10 payment."
+      a: "Yes, our Secret Santa generator is completely free to use. You get unlimited groups, unlimited participants, wishlist management, and random assignments at no cost."
     },
     {
       q: "Do I need to create an account or register?",
@@ -249,7 +243,7 @@ export default function Home() {
     },
     {
       q: "How many people can participate in a Secret Santa group?",
-      a: "You need a minimum of 3 people to generate assignments. The free plan supports up to 10 participants per group. For larger groups like office parties, you can unlock unlimited participants with a one-time $10 payment."
+      a: "You need a minimum of 3 people to generate assignments. There's no maximum, so it works great for large groups like office parties too."
     },
     {
       q: "Can I set a gift budget for my Secret Santa group?",
@@ -470,10 +464,10 @@ export default function Home() {
               <span className="text-santa-gold">Simple</span> Pricing
             </h2>
             <p className="text-xl text-gray-400 mb-10 max-w-2xl mx-auto">
-              Free for groups up to 10 people. One simple upgrade for bigger groups.
+              Free for every group, no limits, no upgrades, no credit card required.
             </p>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 max-w-3xl mx-auto">
+            <div className="max-w-md mx-auto">
               {/* Free Tier */}
               <div className="bg-santa-dark rounded-2xl border-2 border-white/10 p-8 card-glow">
                 <div className="text-4xl mb-3">🎁</div>
@@ -483,7 +477,7 @@ export default function Home() {
 
                 <ul className="text-left space-y-3 mb-8">
                   <li className="flex items-start text-gray-300">
-                    <span className="text-santa-green mr-3 mt-0.5 flex-shrink-0">&#10003;</span> <span>Up to 10 participants per group</span>
+                    <span className="text-santa-green mr-3 mt-0.5 flex-shrink-0">&#10003;</span> <span>Unlimited participants per group</span>
                   </li>
                   <li className="flex items-start text-gray-300">
                     <span className="text-santa-green mr-3 mt-0.5 flex-shrink-0">&#10003;</span> <span>Unlimited groups</span>
@@ -508,34 +502,6 @@ export default function Home() {
                 >
                   Get Started &rarr;
                 </Link>
-              </div>
-
-              {/* Unlimited Tier */}
-              <div className="bg-santa-dark rounded-2xl border-2 border-santa-gold/30 p-8 card-glow relative">
-                <div className="absolute -top-3 left-1/2 -translate-x-1/2 bg-santa-gold text-santa-dark text-xs font-bold px-3 py-1 rounded-full uppercase tracking-wider">Best Value</div>
-                <div className="text-4xl mb-3">🏆</div>
-                <div className="text-santa-gold text-sm font-semibold uppercase tracking-wider mb-2">Unlimited</div>
-                <div className="text-5xl font-bold text-white mb-2">$10</div>
-                <p className="text-gray-400 mb-6">One-time payment</p>
-
-                <ul className="text-left space-y-3 mb-8">
-                  <li className="flex items-start text-gray-300">
-                    <span className="text-santa-gold mr-3 mt-0.5 flex-shrink-0">&#10003;</span> <span>Everything in Free</span>
-                  </li>
-                  <li className="flex items-start text-gray-300">
-                    <span className="text-santa-gold mr-3 mt-0.5 flex-shrink-0">&#10003;</span> <span>Unlimited participants per group</span>
-                  </li>
-                  <li className="flex items-start text-gray-300">
-                    <span className="text-santa-gold mr-3 mt-0.5 flex-shrink-0">&#10003;</span> <span>Pay once, use forever</span>
-                  </li>
-                </ul>
-
-                <a
-                  href="https://buy.stripe.com/7sY00i9dP2otgDv0RbeAg03"
-                  className="block w-full bg-santa-gold text-santa-dark py-3 rounded-xl font-bold text-lg hover:bg-santa-gold-dark transition-colors text-center"
-                >
-                  Buy Now &rarr;
-                </a>
               </div>
             </div>
           </div>
