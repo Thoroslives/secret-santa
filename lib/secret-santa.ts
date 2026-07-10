@@ -9,11 +9,15 @@
  *  - exclusions: a directional giver -> receiver pair that must not occur
  *    (e.g. "don't repeat who you gave to last year")
  *
- * Implemented as a bounded backtracking search: giver order and each
- * giver's candidate list are Fisher-Yates shuffled for fairness, then a DFS
- * assigns one unused receiver per giver, backtracking on dead ends. Total
- * backtracking steps are capped so the function always returns - it never
- * hangs, even on a pathological/infeasible input.
+ * Implemented as a complete bipartite perfect matching search (Kuhn's
+ * augmenting-path algorithm): givers are the left side, receivers the right
+ * side, and edges are each giver's eligible-receiver candidates. Giver
+ * processing order and each giver's candidate list are Fisher-Yates
+ * shuffled for fairness/variety, then augmenting paths are searched one
+ * giver at a time. This is complete by construction (a perfect matching is
+ * found whenever one exists) and polynomial (O(V*E)), so no arbitrary step
+ * bound is needed - it always terminates on its own and never false-negatives
+ * a feasible instance.
  */
 
 export interface DrawPerson {
@@ -54,13 +58,14 @@ function shuffleArray<T>(array: T[]): T[] {
  * all fail fast with a reason naming the offending pin). Then builds each
  * giver's eligible-receiver candidate list (self, block partners, and
  * exclusions removed; a pinned giver's candidate list is just the pin) and
- * runs a bounded backtracking search over shuffled candidates.
+ * runs Kuhn's augmenting-path bipartite matching over shuffled candidates
+ * to find a perfect matching.
  *
  * Never throws, never hangs: infeasible input always yields
  * `{ ok: false, reason }` - naming the offending person when a single
  * giver's candidate set is empty, or a generic message when infeasibility
- * can only be established by exhausting the search (Hall-type) or the step
- * bound is hit.
+ * can only be established by exhausting the search (Hall-type: every
+ * candidate set is non-empty, but no perfect matching exists).
  */
 export function generateDraw(
   people: DrawPerson[],
@@ -162,42 +167,54 @@ export function generateDraw(
     }
   }
 
-  // --- Bounded backtracking search (shuffled for fairness) ---
+  // --- Complete bipartite perfect matching (shuffled for fairness) ---
+  // Givers are the left side, receivers the right side, edges are the
+  // candidate adjacency built above. Giver order and each giver's adjacency
+  // are Fisher-Yates shuffled so repeated draws vary and no giver is
+  // systematically favoured.
   const giverOrder = shuffleArray(people.map((p) => p.id));
   const shuffledCandidates = new Map<string, string[]>();
   for (const giverId of giverOrder) {
     shuffledCandidates.set(giverId, shuffleArray(candidates.get(giverId)!));
   }
 
-  const maxSteps = people.length * people.length * 64;
-  let steps = 0;
-  const usedReceivers = new Set<string>();
-  const assignment = new Map<string, string>();
+  // Kuhn's augmenting-path algorithm: matchOfReceiver tracks the current
+  // giver matched to each receiver. For a giver, try each candidate
+  // receiver in turn; if it is unmatched, or its current giver can be
+  // re-routed to a different receiver via an augmenting path, claim it.
+  // The `visited` set is per top-level augmentation attempt, so each
+  // receiver is considered at most once per call - this bounds the search
+  // and guarantees termination. O(V*E) overall: polynomial, complete, no
+  // step cap required.
+  const matchOfReceiver = new Map<string, string>();
 
-  function backtrack(index: number): boolean {
-    if (index === giverOrder.length) return true;
-    const giverId = giverOrder[index];
+  function tryAugment(giverId: string, visited: Set<string>): boolean {
     for (const receiverId of shuffledCandidates.get(giverId)!) {
-      if (usedReceivers.has(receiverId)) continue;
-      steps++;
-      if (steps > maxSteps) return false;
-      usedReceivers.add(receiverId);
-      assignment.set(giverId, receiverId);
-      if (backtrack(index + 1)) return true;
-      usedReceivers.delete(receiverId);
-      assignment.delete(giverId);
+      if (visited.has(receiverId)) continue;
+      visited.add(receiverId);
+      const currentGiver = matchOfReceiver.get(receiverId);
+      if (currentGiver === undefined || tryAugment(currentGiver, visited)) {
+        matchOfReceiver.set(receiverId, giverId);
+        return true;
+      }
     }
     return false;
   }
 
-  const solved = backtrack(0);
-  if (!solved) {
-    // Either genuinely infeasible in a way not attributable to one person
-    // (Hall-type: every candidate set was non-empty, but no perfect
-    // matching exists) or the step bound tripped. Both report the same
-    // honest, generic reason - we never promise per-person attribution the
-    // search did not actually establish.
-    return { ok: false, reason: GENERIC_INFEASIBLE_REASON };
+  for (const giverId of giverOrder) {
+    if (!tryAugment(giverId, new Set<string>())) {
+      // Every giver's adjacency was confirmed non-empty above, yet no
+      // perfect matching exists (Hall-type: the search itself establishes
+      // infeasibility, not any single person). Report the same honest,
+      // generic reason - we never promise per-person attribution the
+      // search did not actually establish.
+      return { ok: false, reason: GENERIC_INFEASIBLE_REASON };
+    }
+  }
+
+  const assignment = new Map<string, string>();
+  for (const [receiverId, giverId] of matchOfReceiver) {
+    assignment.set(giverId, receiverId);
   }
 
   return {

@@ -253,4 +253,85 @@ describe('generateDraw', () => {
       expect(elapsed).toBeLessThan(1000);
     });
   });
+
+  describe('realistic-scale family-block fuzz (n=15,20,25,30; 50 runs each)', () => {
+    // Regression coverage for the bounded-backtracking false-negative bug: at
+    // this scale and block density the old maxSteps-capped search returned
+    // false `{ ok: false }` on demonstrably feasible instances (re-running the
+    // same instance succeeded most of the time - it just ran out of steps on
+    // an unlucky shuffle). Partitioning into "families" and blocking every
+    // within-family pair is a known-feasible pattern as long as no family
+    // exceeds floor(n/2) people - true here since families are capped at 5
+    // and every n is >= 15 (floor(n/2) >= 7).
+    function partitionIntoFamilies(n: number): number[] {
+      const sizes: number[] = [];
+      let remaining = n;
+      while (remaining > 0) {
+        if (remaining <= 5) {
+          sizes.push(remaining);
+          remaining = 0;
+        } else if (remaining === 6) {
+          // Avoid leaving a trailing family smaller than 3.
+          sizes.push(3);
+          remaining -= 3;
+        } else {
+          sizes.push(4);
+          remaining -= 4;
+        }
+      }
+      return sizes;
+    }
+
+    function buildFamilies(people: DrawPerson[]) {
+      const familySizes = partitionIntoFamilies(people.length);
+      const familyOf = new Map<string, number>();
+      const blocks: Array<[string, string]> = [];
+      let index = 0;
+      familySizes.forEach((size, familyIndex) => {
+        const family = people.slice(index, index + size);
+        index += size;
+        for (const person of family) familyOf.set(person.id, familyIndex);
+        for (let i = 0; i < family.length; i++) {
+          for (let j = i + 1; j < family.length; j++) {
+            blocks.push([family[i].id, family[j].id]);
+          }
+        }
+      });
+      return { familyOf, blocks };
+    }
+
+    it.each([15, 20, 25, 30])(
+      'always returns ok:true for n=%i with symmetric within-family blocks (50 runs)',
+      (n) => {
+        const people = makePeople(n);
+        const { familyOf, blocks } = buildFamilies(people);
+        const constraints: DrawConstraints = { blocks };
+        const validIds = new Set(people.map((p) => p.id));
+
+        for (let run = 0; run < 50; run++) {
+          const result = generateDraw(people, constraints);
+          expect(result.ok).toBe(true);
+          if (!result.ok) return;
+
+          expect(result.assignments).toHaveLength(n);
+
+          const giverIds = new Set<string>();
+          const receiverIds = new Set<string>();
+          for (const a of result.assignments) {
+            expect(validIds.has(a.giverId)).toBe(true);
+            expect(validIds.has(a.receiverId)).toBe(true);
+            // No self-assignment.
+            expect(a.giverId).not.toBe(a.receiverId);
+            // No blocked (same-family) pair in either direction.
+            expect(familyOf.get(a.giverId)).not.toBe(familyOf.get(a.receiverId));
+            giverIds.add(a.giverId);
+            receiverIds.add(a.receiverId);
+          }
+          // Valid permutation: every giver and every receiver used exactly once.
+          expect(giverIds.size).toBe(n);
+          expect(receiverIds.size).toBe(n);
+        }
+      }
+    );
+  });
 });
