@@ -30,6 +30,7 @@ export default function AdminDashboard() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [successMessage, setSuccessMessage] = useState("");
+  const [shareLinks, setShareLinks] = useState<{ name: string; link: string }[]>([]);
   const [groupInfo, setGroupInfo] = useState({ id: "", name: "", inviteCode: "" });
   const [budget, setBudget] = useState<GroupBudget>({ budgetAmount: undefined, budgetCurrency: "USD" });
   const [budgetAmount, setBudgetAmount] = useState("");
@@ -180,6 +181,32 @@ export default function AdminDashboard() {
 
       setSuccessMessage(`Generated ${data.count} Secret Santa assignments!`);
       loadData(groupInfo.id);
+    } catch (err) {
+      setError("An error occurred");
+    }
+  };
+
+  const handleSendMatches = async () => {
+    if (!confirm("Send everyone their match? Participants will then be able to see who they drew.")) {
+      return;
+    }
+    setError("");
+    setSuccessMessage("");
+    try {
+      const res = await fetch("/api/rounds/send", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ groupId: groupInfo.id, year: new Date().getFullYear() }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data.error || "Failed to send matches");
+        return;
+      }
+      setShareLinks(data.shareLinks || []);
+      setSuccessMessage(
+        `Matches sent (${data.sent} emailed, ${data.failed} could not be emailed). Share the personal links below with anyone who has no email.`
+      );
     } catch (err) {
       setError("An error occurred");
     }
@@ -421,15 +448,35 @@ export default function AdminDashboard() {
                   Generate Assignments
                 </button>
               ) : (
-                <button
-                  onClick={handleDeleteAssignments}
-                  className="w-full bg-santa-gold text-santa-dark py-2 rounded-xl font-semibold hover:bg-santa-gold-dark transition-all duration-300 hover:scale-105 transform"
-                >
-                  Delete &amp; Regenerate
-                </button>
+                <>
+                  <button
+                    onClick={handleSendMatches}
+                    className="w-full bg-green-600 text-white py-2 rounded-xl font-semibold hover:bg-green-700 transition-all duration-300 hover:scale-105 transform"
+                  >
+                    Send matches
+                  </button>
+                  <button
+                    onClick={handleDeleteAssignments}
+                    className="w-full bg-santa-gold text-santa-dark py-2 rounded-xl font-semibold hover:bg-santa-gold-dark transition-all duration-300 hover:scale-105 transform"
+                  >
+                    Delete &amp; Regenerate
+                  </button>
+                </>
               )}
               {people.length < 3 && (
                 <p className="text-sm text-santa-red">Need at least 3 people to generate assignments</p>
+              )}
+              {shareLinks.length > 0 && (
+                <div className="mt-4 text-sm text-gray-300">
+                  <p className="font-semibold text-santa-snow mb-1">Personal links (copy to share manually):</p>
+                  <ul className="space-y-1">
+                    {shareLinks.map((s) => (
+                      <li key={s.link} className="break-all">
+                        <span className="text-santa-snow">{s.name}:</span> {s.link}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
               )}
             </div>
           </div>

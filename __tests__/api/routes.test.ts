@@ -45,6 +45,7 @@ const mockPrismaDb = {
     delete: jest.fn(),
   },
   round: {
+    findUnique: jest.fn(),
     update: jest.fn(),
   },
   $transaction: jest.fn(),
@@ -120,6 +121,7 @@ jest.mock('@/lib/utils', () => ({
 // ---------------------------------------------------------------------------
 jest.mock('@/lib/email', () => ({
   sendLoginLinkEmail: jest.fn().mockResolvedValue(true),
+  sendMatchReadyEmail: jest.fn().mockResolvedValue(true),
 }));
 
 // ---------------------------------------------------------------------------
@@ -142,7 +144,7 @@ jest.mock('@/lib/rounds', () => ({
 import bcrypt from 'bcryptjs';
 import { ensureRound } from '@/lib/rounds';
 import { generateGroupInviteCode, generatePersonalLinkToken, validateWishlistItems } from '@/lib/utils';
-import { sendLoginLinkEmail } from '@/lib/email';
+import { sendLoginLinkEmail, sendMatchReadyEmail } from '@/lib/email';
 import { generateDraw } from '@/lib/secret-santa';
 
 import { POST as createGroup } from '@/app/api/groups/create/route';
@@ -158,6 +160,7 @@ import { POST as adminAuth } from '@/app/api/admin/auth/route';
 import { POST as createBlock, DELETE as deleteBlock } from '@/app/api/blocks/route';
 import { POST as createPin, DELETE as deletePin } from '@/app/api/pins/route';
 import { POST as generateRound } from '@/app/api/rounds/generate/route';
+import { POST as sendRound } from '@/app/api/rounds/send/route';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -1242,5 +1245,83 @@ describe('POST /api/rounds/generate', () => {
     expect(mockPrismaDb.round.update).toHaveBeenCalledWith(
       expect.objectContaining({ where: { id: 'round-1' }, data: { status: 'generated' } })
     );
+  });
+});
+
+// ===========================================================================
+// POST /api/rounds/send
+// ===========================================================================
+describe('POST /api/rounds/send', () => {
+  const url = 'http://localhost:3000/api/rounds/send';
+  const generatedRound = { id: 'round-1', groupId: 'group-1', year: 2026, status: 'generated' };
+  const assignments = [
+    { giver: { name: 'Alice', email: 'alice@x.com', personalLinkToken: 'tokA', active: true } },
+    { giver: { name: 'Bob', email: null, personalLinkToken: 'tokB', active: true } },
+    { giver: { name: 'Zoe', email: 'zoe@x.com', personalLinkToken: 'tokZ', active: false } },
+  ];
+  beforeEach(() => {
+    mockSession.isAdmin = true;
+    mockSession.adminGroupId = 'group-1';
+    mockPrismaDb.round.findUnique.mockResolvedValue(generatedRound);
+    mockPrismaDb.assignment.findMany.mockResolvedValue(assignments);
+    mockPrismaDb.group.findUnique.mockResolvedValue({ id: 'group-1', name: 'Smiths' });
+  });
+
+  it('returns 400 when groupId is missing', async () => {
+    expect((await sendRound(makePostRequest(url, {}))).status).toBe(400);
+  });
+
+  it('returns 403 for a non-admin', async () => {
+    delete mockSession.isAdmin;
+    expect((await sendRound(makePostRequest(url, { groupId: 'group-1' }))).status).toBe(403);
+  });
+
+  it('returns 400 when no round exists', async () => {
+    mockPrismaDb.round.findUnique.mockResolvedValue(null);
+    expect((await sendRound(makePostRequest(url, { groupId: 'group-1' }))).status).toBe(400);
+  });
+
+  it('refuses to send a draft (nothing generated)', async () => {
+    mockPrismaDb.round.findUnique.mockResolvedValue({ ...generatedRound, status: 'draft' });
+    expect((await sendRound(makePostRequest(url, { groupId: 'group-1' }))).status).toBe(400);
+  });
+
+  it('flips to sent, mails active givers with email, share-links for all active', async () => {
+    const res = await sendRound(makePostRequest(url, { groupId: 'group-1' }));
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.status).toBe('sent');
+    expect(mockPrismaDb.round.update).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { id: 'round-1' }, data: expect.objectContaining({ status: 'sent' }) })
+    );
+    // Alice (active+email) mailed; Bob (active, no email) not; Zoe (inactive) skipped.
+    // sendMatchReadyEmail gets only the GIVER's name - the drawee is never passed.
+    expect(sendMatchReadyEmail).toHaveBeenCalledTimes(1);
+    expect(sendMatchReadyEmail).toHaveBeenCalledWith('alice@x.com', 'Alice', 'Smiths', expect.stringContaining('/p/tokA'));
+    expect(json.sent).toBe(1);
+    expect(json.shareLinks).toHaveLength(2); // Alice + Bob, not inactive Zoe
+  });
+
+  it('resend on an already-sent round re-mails without re-flipping', async () => {
+    mockPrismaDb.round.findUnique.mockResolvedValue({ ...generatedRound, status: 'sent' });
+    const res = await sendRound(makePostRequest(url, { groupId: 'group-1' }));
+    expect(res.status).toBe(200);
+    expect(mockPrismaDb.round.update).not.toHaveBeenCalled();
+    expect(sendMatchReadyEmail).toHaveBeenCalledTimes(1);
+  });
+
+  it('reverts a sent round back to generated', async () => {
+    mockPrismaDb.round.findUnique.mockResolvedValue({ ...generatedRound, status: 'sent' });
+    const res = await sendRound(makePostRequest(url + '?revert=1', { groupId: 'group-1' }));
+    expect(res.status).toBe(200);
+    expect((await res.json()).reverted).toBe(true);
+    expect(mockPrismaDb.round.update).toHaveBeenCalledWith(
+      expect.objectContaining({ data: { status: 'generated', sentAt: null } })
+    );
+  });
+
+  it('refuses to revert a round that is not sent', async () => {
+    mockPrismaDb.round.findUnique.mockResolvedValue(generatedRound);
+    expect((await sendRound(makePostRequest(url + '?revert=1', { groupId: 'group-1' }))).status).toBe(400);
   });
 });
