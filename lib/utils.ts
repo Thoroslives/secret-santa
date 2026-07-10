@@ -1,16 +1,9 @@
 import { randomBytes } from "crypto";
 
-// Generate a unique login code (8 characters, alphanumeric)
-export function generateLoginCode(): string {
-  const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; // Exclude similar looking chars
-  let code = "";
-  const bytes = randomBytes(8);
-
-  for (let i = 0; i < 8; i++) {
-    code += chars[bytes[i] % chars.length];
-  }
-
-  return code;
+// Generate a durable, unguessable personal-link token for a person (32 random
+// bytes, base64url-encoded - no padding/slashes, safe to embed in a URL path).
+export function generatePersonalLinkToken(): string {
+  return randomBytes(32).toString("base64url");
 }
 
 // Generate a unique group invite code (6 characters, alphanumeric)

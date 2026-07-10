@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
-import { generateLoginCode } from "@/lib/utils";
+import { generatePersonalLinkToken } from "@/lib/utils";
 import { getSession } from "@/lib/session";
 
 // GET all people for a group
@@ -83,25 +83,16 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Generate unique login code for this group
-    let loginCode = generateLoginCode();
-    let exists = await prisma.person.findFirst({
-      where: { groupId, loginCode },
-    });
-
-    // Regenerate if code already exists in this group (very unlikely)
-    while (exists) {
-      loginCode = generateLoginCode();
-      exists = await prisma.person.findFirst({
-        where: { groupId, loginCode },
-      });
-    }
-
     const person = await prisma.person.create({
       data: {
         name: name.trim(),
         email: email && email.trim() ? email.trim().toLowerCase() : null,
-        loginCode,
+        personalLinkToken: generatePersonalLinkToken(),
+        // `loginCode` is still NOT NULL + unique-per-group at the DB level (dropped in
+        // Task 12's schema contract). We no longer authenticate via login codes, so write
+        // a fresh unique throwaway value to satisfy the constraint until then.
+        // TODO(Task 12): drop loginCode
+        loginCode: generatePersonalLinkToken(),
         groupId,
       },
     });

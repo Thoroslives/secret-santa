@@ -1,5 +1,5 @@
 import {
-  generateLoginCode,
+  generatePersonalLinkToken,
   generateGroupInviteCode,
   validateWishlistItems,
 } from '@/lib/utils';
@@ -7,37 +7,23 @@ import {
 const ALLOWED_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 const EXCLUDED_CHARS = ['I', 'O', '0', '1'];
 
-describe('generateLoginCode', () => {
-  it('returns an 8-character string', () => {
-    const code = generateLoginCode();
-    expect(code).toHaveLength(8);
+describe('generatePersonalLinkToken', () => {
+  it('returns a base64url string with no padding or unsafe characters', () => {
+    const token = generatePersonalLinkToken();
+    expect(token).toMatch(/^[A-Za-z0-9_-]+$/);
   });
 
-  it('only contains allowed characters', () => {
-    for (let i = 0; i < 50; i++) {
-      const code = generateLoginCode();
-      for (const char of code) {
-        expect(ALLOWED_CHARS).toContain(char);
-      }
-    }
+  it('encodes 32 random bytes (43 base64url characters, no padding)', () => {
+    const token = generatePersonalLinkToken();
+    expect(token).toHaveLength(43);
   });
 
-  it('does not contain excluded characters (I, O, 0, 1, L)', () => {
-    for (let i = 0; i < 50; i++) {
-      const code = generateLoginCode();
-      for (const excluded of EXCLUDED_CHARS) {
-        expect(code).not.toContain(excluded);
-      }
-    }
-  });
-
-  it('multiple calls usually generate different codes', () => {
-    const codes = new Set<string>();
+  it('multiple calls generate different tokens', () => {
+    const tokens = new Set<string>();
     for (let i = 0; i < 20; i++) {
-      codes.add(generateLoginCode());
+      tokens.add(generatePersonalLinkToken());
     }
-    // With 8 chars from 31-char alphabet, collisions in 20 draws are extremely unlikely
-    expect(codes.size).toBeGreaterThan(1);
+    expect(tokens.size).toBe(20);
   });
 });
 

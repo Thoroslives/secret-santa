@@ -15,6 +15,7 @@ const mockPrismaDb = {
     findUnique: jest.fn(),
     findMany: jest.fn(),
     create: jest.fn(),
+    update: jest.fn(),
     delete: jest.fn(),
   },
   wishlistItem: {
@@ -55,6 +56,28 @@ jest.mock('@/app/generated/prisma', () => ({
 }));
 
 // ---------------------------------------------------------------------------
+// Mock setup for @/lib/session - a controllable session object shared across
+// every route under test. Routes call `getSession()`/`getSessionFromRequest()`
+// at the very top of their handlers; without this mock, the real iron-session
+// implementation calls `next/headers` `cookies()`, which throws outside a real
+// request scope ("cookies() was called outside a request scope") and every
+// such route 500s before its own logic ever runs. Individual tests set the
+// fields they need (isAdmin/adminGroupId, isLoggedIn/personId/groupId, etc.);
+// the beforeEach below clears everything back to a logged-out session except
+// the two jest.fn spies themselves.
+// ---------------------------------------------------------------------------
+const mockSession: Record<string, unknown> & { save: jest.Mock; destroy: jest.Mock } = {
+  save: jest.fn(),
+  destroy: jest.fn(),
+};
+
+jest.mock('@/lib/session', () => ({
+  getSession: jest.fn(async () => mockSession),
+  getSessionFromRequest: jest.fn(async () => mockSession),
+  cookieSecure: jest.fn(() => false),
+}));
+
+// ---------------------------------------------------------------------------
 // Mock bcryptjs
 // ---------------------------------------------------------------------------
 jest.mock('bcryptjs', () => ({
@@ -70,7 +93,7 @@ jest.mock('bcryptjs', () => ({
 // ---------------------------------------------------------------------------
 jest.mock('@/lib/utils', () => ({
   generateGroupInviteCode: jest.fn().mockReturnValue('ABC123'),
-  generateLoginCode: jest.fn().mockReturnValue('LOGIN123'),
+  generatePersonalLinkToken: jest.fn().mockReturnValue('tok_test'),
   validateWishlistItems: jest.fn(),
 }));
 
@@ -94,7 +117,7 @@ jest.mock('@/lib/secret-santa', () => ({
 // Imports (after mocks)
 // ---------------------------------------------------------------------------
 import bcrypt from 'bcryptjs';
-import { generateGroupInviteCode, generateLoginCode, validateWishlistItems } from '@/lib/utils';
+import { generateGroupInviteCode, generatePersonalLinkToken, validateWishlistItems } from '@/lib/utils';
 import { generateMagicToken, sendMagicLinkEmail, verifyMagicToken } from '@/lib/email';
 import { generateSecretSantaAssignments } from '@/lib/secret-santa';
 
@@ -105,7 +128,7 @@ import { POST as loginAuth } from '@/app/api/auth/login/route';
 import { POST as magicLink } from '@/app/api/auth/magic-link/route';
 import { GET as verifyAuth } from '@/app/api/auth/verify/route';
 import { GET as getPeople, POST as createPerson } from '@/app/api/people/route';
-import { DELETE as deletePerson } from '@/app/api/people/[id]/route';
+import { DELETE as deletePerson, PATCH as patchPerson } from '@/app/api/people/[id]/route';
 import { POST as updateWishlist } from '@/app/api/wishlist/route';
 import { POST as generateAssignments } from '@/app/api/assignments/generate/route';
 import { GET as getAssignments, DELETE as deleteAssignments } from '@/app/api/assignments/route';
@@ -143,6 +166,10 @@ function makePatchRequest(url: string, body: Record<string, unknown>): NextReque
 // ---------------------------------------------------------------------------
 beforeEach(() => {
   jest.clearAllMocks();
+  // Reset the shared session back to logged-out, keeping the save/destroy spies.
+  for (const k of Object.keys(mockSession)) {
+    if (k !== 'save' && k !== 'destroy') delete mockSession[k];
+  }
 });
 
 // ===========================================================================
@@ -160,11 +187,14 @@ describe('POST /api/groups/create', () => {
   });
 
   it('returns 400 when admin password is too short', async () => {
+    // lib/password.ts's validatePassword() requires 12+ chars (with upper/lower/digit);
+    // this test predates that policy and asserted the old 6-char message. Corrected to
+    // match the password policy the route has actually enforced all along.
     const req = makePostRequest(url, { groupName: 'Test Group', adminPassword: '12345' });
     const res = await createGroup(req);
     expect(res.status).toBe(400);
     const json = await res.json();
-    expect(json.error).toBe('Admin password must be at least 6 characters');
+    expect(json.error).toBe('Password must be at least 12 characters long');
   });
 
   it('returns 201 on successful group creation', async () => {
@@ -177,7 +207,8 @@ describe('POST /api/groups/create', () => {
       adminConfig: { id: 'ac-1', hashedPassword: 'hashed-password', groupId: 'group-1' },
     });
 
-    const req = makePostRequest(url, { groupName: 'Test Group', adminPassword: 'password123' });
+    // Must satisfy validatePassword(): 12+ chars, upper + lower + digit.
+    const req = makePostRequest(url, { groupName: 'Test Group', adminPassword: 'Password1234' });
     const res = await createGroup(req);
     expect(res.status).toBe(201);
 
@@ -190,7 +221,7 @@ describe('POST /api/groups/create', () => {
     });
 
     expect(generateGroupInviteCode).toHaveBeenCalled();
-    expect(bcrypt.hash).toHaveBeenCalledWith('password123', 10);
+    expect(bcrypt.hash).toHaveBeenCalledWith('Password1234', 12);
     expect(mockPrismaDb.group.create).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({ name: 'Test Group', inviteCode: 'ABC123' }),
@@ -244,8 +275,13 @@ describe('POST /api/groups/verify', () => {
 // 3. GET /api/groups/[id]
 // ===========================================================================
 describe('GET /api/groups/[id]', () => {
+  // Note: this route imports `prisma` from '@/lib/db' (mockPrismaDb), not its own
+  // PrismaClient - these tests previously drove the unused `mockPrismaOwn` mock, which
+  // never reached the real route (it always saw an unmocked, undefined-returning
+  // findUnique). Corrected to use mockPrismaDb, which the route actually calls.
   it('returns 404 when group is not found', async () => {
-    mockPrismaOwn.group.findUnique.mockResolvedValue(null);
+    mockSession.groupId = 'nonexistent';
+    mockPrismaDb.group.findUnique.mockResolvedValue(null);
 
     const req = makeGetRequest('http://localhost:3000/api/groups/nonexistent');
     const res = await getGroup(req, { params: { id: 'nonexistent' } } as any);
@@ -255,6 +291,7 @@ describe('GET /api/groups/[id]', () => {
   });
 
   it('returns 200 with group data for valid id', async () => {
+    mockSession.groupId = 'group-1';
     const groupData = {
       id: 'group-1',
       name: 'Test',
@@ -262,7 +299,7 @@ describe('GET /api/groups/[id]', () => {
       year: 2026,
       _count: { people: 5, assignments: 5 },
     };
-    mockPrismaOwn.group.findUnique.mockResolvedValue(groupData);
+    mockPrismaDb.group.findUnique.mockResolvedValue(groupData);
 
     const req = makeGetRequest('http://localhost:3000/api/groups/group-1');
     const res = await getGroup(req, { params: { id: 'group-1' } } as any);
@@ -276,6 +313,13 @@ describe('GET /api/groups/[id]', () => {
 // 4. PATCH /api/groups/[id]
 // ===========================================================================
 describe('PATCH /api/groups/[id]', () => {
+  // Same mockPrismaOwn->mockPrismaDb correction as GET /api/groups/[id] above, plus an
+  // admin session (this route 403s up front unless session.isAdmin && adminGroupId matches).
+  beforeEach(() => {
+    mockSession.isAdmin = true;
+    mockSession.adminGroupId = 'group-1';
+  });
+
   it('returns 400 for invalid currency code', async () => {
     const req = makePatchRequest('http://localhost:3000/api/groups/group-1', {
       budgetAmount: 50,
@@ -305,7 +349,7 @@ describe('PATCH /api/groups/[id]', () => {
       budgetAmount: 50,
       budgetCurrency: 'EUR',
     };
-    mockPrismaOwn.group.update.mockResolvedValue(updatedGroup);
+    mockPrismaDb.group.update.mockResolvedValue(updatedGroup);
 
     const req = makePatchRequest('http://localhost:3000/api/groups/group-1', {
       budgetAmount: 50,
@@ -320,6 +364,8 @@ describe('PATCH /api/groups/[id]', () => {
 
 // ===========================================================================
 // 5. POST /api/auth/login
+// rewritten/removed in Task 6 - login-code auth is replaced by durable personal-link
+// tokens; not brought fully green here (see task-5-report.md).
 // ===========================================================================
 describe('POST /api/auth/login', () => {
   const url = 'http://localhost:3000/api/auth/login';
@@ -386,6 +432,8 @@ describe('POST /api/auth/login', () => {
 
 // ===========================================================================
 // 6. POST /api/auth/magic-link
+// rewritten/removed in Task 6 - magic-link auth is replaced by durable personal-link
+// tokens; not brought fully green here (see task-5-report.md).
 // ===========================================================================
 describe('POST /api/auth/magic-link', () => {
   const url = 'http://localhost:3000/api/auth/magic-link';
@@ -460,6 +508,8 @@ describe('POST /api/auth/magic-link', () => {
 
 // ===========================================================================
 // 7. GET /api/auth/verify
+// rewritten/removed in Task 6 - magic-link verify is replaced by durable personal-link
+// tokens; not brought fully green here (see task-5-report.md).
 // ===========================================================================
 describe('GET /api/auth/verify', () => {
   it('returns 400 when token is missing', async () => {
@@ -568,6 +618,11 @@ describe('GET /api/people', () => {
 describe('POST /api/people', () => {
   const url = 'http://localhost:3000/api/people';
 
+  beforeEach(() => {
+    mockSession.isAdmin = true;
+    mockSession.adminGroupId = 'group-1';
+  });
+
   it('returns 400 when name is missing', async () => {
     const req = makePostRequest(url, { name: '', groupId: 'group-1' });
     const res = await createPerson(req);
@@ -605,7 +660,10 @@ describe('POST /api/people', () => {
       id: 'person-1',
       name: 'Alice',
       email: 'alice@example.com',
-      loginCode: 'LOGIN123',
+      personalLinkToken: 'tok_test',
+      // Bridge column until Task 12 drops it - still written, but now derived from the
+      // same generator as personalLinkToken, not the retired generateLoginCode.
+      loginCode: 'tok_test',
       groupId: 'group-1',
     };
     mockPrismaDb.person.create.mockResolvedValue(personData);
@@ -619,7 +677,12 @@ describe('POST /api/people', () => {
     expect(res.status).toBe(201);
     const json = await res.json();
     expect(json.person).toEqual(personData);
-    expect(generateLoginCode).toHaveBeenCalled();
+    expect(generatePersonalLinkToken).toHaveBeenCalled();
+    expect(mockPrismaDb.person.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ personalLinkToken: 'tok_test', loginCode: 'tok_test' }),
+      }),
+    );
   });
 });
 
@@ -627,7 +690,15 @@ describe('POST /api/people', () => {
 // 10. DELETE /api/people/[id]
 // ===========================================================================
 describe('DELETE /api/people/[id]', () => {
+  beforeEach(() => {
+    mockSession.isAdmin = true;
+    mockSession.adminGroupId = 'group-1';
+  });
+
   it('returns 200 on successful delete', async () => {
+    // The route looks the person up (and checks group ownership) before deleting -
+    // this was previously masked by the getSession() crash, so the mock was never needed.
+    mockPrismaDb.person.findUnique.mockResolvedValue({ id: 'person-1', groupId: 'group-1' });
     mockPrismaDb.person.delete.mockResolvedValue({ id: 'person-1' });
 
     const req = makeDeleteRequest('http://localhost:3000/api/people/person-1');
@@ -639,6 +710,7 @@ describe('DELETE /api/people/[id]', () => {
   });
 
   it('returns 500 on error', async () => {
+    mockPrismaDb.person.findUnique.mockResolvedValue({ id: 'nonexistent', groupId: 'group-1' });
     mockPrismaDb.person.delete.mockRejectedValue(new Error('DB error'));
 
     const req = makeDeleteRequest('http://localhost:3000/api/people/nonexistent');
@@ -650,17 +722,94 @@ describe('DELETE /api/people/[id]', () => {
 });
 
 // ===========================================================================
+// 10b. PATCH /api/people/[id] (new: admin-gated active toggle)
+// ===========================================================================
+describe('PATCH /api/people/[id]', () => {
+  const url = 'http://localhost:3000/api/people/person-1';
+
+  it('returns 403 when not admin', async () => {
+    const req = makePatchRequest(url, { active: false });
+    const res = await patchPerson(req, { params: { id: 'person-1' } } as any);
+    expect(res.status).toBe(403);
+    const json = await res.json();
+    expect(json.error).toBe('Admin authentication required');
+  });
+
+  describe('as admin', () => {
+    beforeEach(() => {
+      mockSession.isAdmin = true;
+      mockSession.adminGroupId = 'group-1';
+    });
+
+    it('returns 400 when active is not a boolean', async () => {
+      const req = makePatchRequest(url, { active: 'nope' });
+      const res = await patchPerson(req, { params: { id: 'person-1' } } as any);
+      expect(res.status).toBe(400);
+      const json = await res.json();
+      expect(json.error).toBe('active must be a boolean');
+    });
+
+    it('returns 404 when person is not found', async () => {
+      mockPrismaDb.person.findUnique.mockResolvedValue(null);
+
+      const req = makePatchRequest(url, { active: false });
+      const res = await patchPerson(req, { params: { id: 'person-1' } } as any);
+      expect(res.status).toBe(404);
+      const json = await res.json();
+      expect(json.error).toBe('Person not found');
+    });
+
+    it('returns 403 when person belongs to a different group', async () => {
+      mockPrismaDb.person.findUnique.mockResolvedValue({ id: 'person-1', groupId: 'other-group' });
+
+      const req = makePatchRequest(url, { active: false });
+      const res = await patchPerson(req, { params: { id: 'person-1' } } as any);
+      expect(res.status).toBe(403);
+      const json = await res.json();
+      expect(json.error).toBe('Forbidden');
+    });
+
+    it('returns 200 and flips active', async () => {
+      mockPrismaDb.person.findUnique.mockResolvedValue({ id: 'person-1', groupId: 'group-1', active: true });
+      mockPrismaDb.person.update.mockResolvedValue({ id: 'person-1', groupId: 'group-1', active: false });
+
+      const req = makePatchRequest(url, { active: false });
+      const res = await patchPerson(req, { params: { id: 'person-1' } } as any);
+      expect(res.status).toBe(200);
+      const json = await res.json();
+      expect(json.person.active).toBe(false);
+      expect(mockPrismaDb.person.update).toHaveBeenCalledWith({
+        where: { id: 'person-1' },
+        data: { active: false },
+      });
+    });
+  });
+});
+
+// ===========================================================================
 // 11. POST /api/wishlist
 // ===========================================================================
 describe('POST /api/wishlist', () => {
   const url = 'http://localhost:3000/api/wishlist';
 
-  it('returns 400 when personId is missing', async () => {
+  // The route requires a logged-in participant session and checks ownership
+  // (`personId !== session.personId` -> 403) before any body validation, so every
+  // test needs a session whose personId matches the person it's exercising.
+  beforeEach(() => {
+    mockSession.isLoggedIn = true;
+    mockSession.personId = 'person-1';
+    mockSession.groupId = 'group-1';
+  });
+
+  it('returns 403 when personId is missing (ownership check runs before presence check)', async () => {
+    // GUARD-ORDER: the route checks `personId !== session.personId` (403) before
+    // `!personId` (400), so an absent personId never reaches the "required" branch -
+    // it fails ownership first, since undefined !== 'person-1'.
     const req = makePostRequest(url, { items: [] });
     const res = await updateWishlist(req);
-    expect(res.status).toBe(400);
+    expect(res.status).toBe(403);
     const json = await res.json();
-    expect(json.error).toBe('Person ID is required');
+    expect(json.error).toBe('Forbidden: you can only modify your own wishlist');
   });
 
   it('returns 400 when items is not an array', async () => {
@@ -679,7 +828,7 @@ describe('POST /api/wishlist', () => {
 
     const req = makePostRequest(url, {
       personId: 'person-1',
-      items: [{ title: '', link: 'http://example.com' }],
+      items: [{ title: '', note: 'http://example.com' }],
     });
     const res = await updateWishlist(req);
     expect(res.status).toBe(400);
@@ -692,8 +841,8 @@ describe('POST /api/wishlist', () => {
     mockPrismaDb.person.findUnique.mockResolvedValue(null);
 
     const req = makePostRequest(url, {
-      personId: 'nonexistent',
-      items: [{ title: 'Gift', link: 'http://example.com' }],
+      personId: 'person-1',
+      items: [{ title: 'Gift', note: 'http://example.com' }],
     });
     const res = await updateWishlist(req);
     expect(res.status).toBe(404);
@@ -703,20 +852,22 @@ describe('POST /api/wishlist', () => {
 
   it('returns 200 on valid wishlist update', async () => {
     (validateWishlistItems as jest.Mock).mockReturnValue({ valid: true });
-    mockPrismaDb.person.findUnique.mockResolvedValue({ id: 'person-1' });
+    mockPrismaDb.person.findUnique.mockResolvedValue({ id: 'person-1', groupId: 'group-1' });
     mockPrismaDb.wishlistItem.deleteMany.mockResolvedValue({ count: 0 });
     const createdItem = {
       id: 'wi-1',
       personId: 'person-1',
       title: 'Cool Gift',
-      link: 'http://example.com/gift',
+      note: 'http://example.com/gift',
+      // Legacy NOT NULL column, written as a placeholder until Task 12 drops it.
+      link: '',
       order: 0,
     };
     mockPrismaDb.wishlistItem.create.mockResolvedValue(createdItem);
 
     const req = makePostRequest(url, {
       personId: 'person-1',
-      items: [{ title: 'Cool Gift', link: 'http://example.com/gift' }],
+      items: [{ title: 'Cool Gift', note: 'http://example.com/gift' }],
     });
     const res = await updateWishlist(req);
     expect(res.status).toBe(200);
@@ -730,7 +881,8 @@ describe('POST /api/wishlist', () => {
       data: {
         personId: 'person-1',
         title: 'Cool Gift',
-        link: 'http://example.com/gift',
+        note: 'http://example.com/gift',
+        link: '',
         order: 0,
       },
     });
@@ -742,6 +894,11 @@ describe('POST /api/wishlist', () => {
 // ===========================================================================
 describe('POST /api/assignments/generate', () => {
   const url = 'http://localhost:3000/api/assignments/generate';
+
+  beforeEach(() => {
+    mockSession.isAdmin = true;
+    mockSession.adminGroupId = 'group-1';
+  });
 
   it('returns 400 when groupId is missing', async () => {
     const req = makePostRequest(url, {});
@@ -816,6 +973,11 @@ describe('POST /api/assignments/generate', () => {
 // 13. GET /api/assignments
 // ===========================================================================
 describe('GET /api/assignments', () => {
+  beforeEach(() => {
+    mockSession.isAdmin = true;
+    mockSession.adminGroupId = 'group-1';
+  });
+
   it('returns 400 when groupId is missing', async () => {
     const req = makeGetRequest('http://localhost:3000/api/assignments');
     const res = await getAssignments(req);
@@ -848,6 +1010,11 @@ describe('GET /api/assignments', () => {
 // 14. DELETE /api/assignments
 // ===========================================================================
 describe('DELETE /api/assignments', () => {
+  beforeEach(() => {
+    mockSession.isAdmin = true;
+    mockSession.adminGroupId = 'group-1';
+  });
+
   it('returns 400 when groupId is missing', async () => {
     const req = makeDeleteRequest('http://localhost:3000/api/assignments');
     const res = await deleteAssignments(req);
@@ -889,14 +1056,18 @@ describe('POST /api/admin/auth', () => {
     expect(json.error).toBe('Group ID is required');
   });
 
-  it('returns 404 when group is not found', async () => {
+  it('returns 401 when group is not found (enumeration-safe: same message as wrong password)', async () => {
+    // The route intentionally returns the same 401 "Invalid credentials" whether the
+    // group/adminConfig doesn't exist or the password is wrong, to avoid leaking which
+    // one was the problem (see the route's "prevent enumeration" comment). This test
+    // predates that and expected a distinguishing 404 - corrected to match.
     mockPrismaDb.adminConfig.findUnique.mockResolvedValue(null);
 
     const req = makePostRequest(url, { password: 'secret123', groupId: 'nonexistent' });
     const res = await adminAuth(req);
-    expect(res.status).toBe(404);
+    expect(res.status).toBe(401);
     const json = await res.json();
-    expect(json.error).toBe('Group not found');
+    expect(json.error).toBe('Invalid credentials');
   });
 
   it('returns 401 when password is wrong', async () => {
@@ -912,7 +1083,7 @@ describe('POST /api/admin/auth', () => {
     const res = await adminAuth(req);
     expect(res.status).toBe(401);
     const json = await res.json();
-    expect(json.error).toBe('Invalid password');
+    expect(json.error).toBe('Invalid credentials');
   });
 
   it('returns 200 on valid admin authentication', async () => {
