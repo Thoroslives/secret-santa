@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 interface WishlistItem {
   id?: string;
   title: string;
-  link: string;
+  note?: string;
 }
 
 interface Assignment {
@@ -16,13 +16,16 @@ interface Assignment {
   };
 }
 
+// A note is rendered as a link when it looks like one; otherwise it's shown as plain text.
+const isLinkNote = (note: string) => /^https?:\/\//.test(note.trim());
+
 export default function Wishlist() {
   const [personId, setPersonId] = useState("");
   const [personName, setPersonName] = useState("");
   const [groupName, setGroupName] = useState("");
   const [groupId, setGroupId] = useState("");
   const [items, setItems] = useState<WishlistItem[]>([
-    { title: "", link: "" },
+    { title: "", note: "" },
   ]);
   const [assignment, setAssignment] = useState<Assignment | null>(null);
   const [budget, setBudget] = useState<{ amount?: number; currency?: string } | null>(null);
@@ -75,7 +78,7 @@ export default function Wishlist() {
           setItems(data.wishlistItems.map((item: WishlistItem) => ({
             id: item.id,
             title: item.title,
-            link: item.link,
+            note: item.note ?? "",
           })));
         }
 
@@ -102,7 +105,7 @@ export default function Wishlist() {
     }
   };
 
-  const handleItemChange = (index: number, field: "title" | "link", value: string) => {
+  const handleItemChange = (index: number, field: "title" | "note", value: string) => {
     const newItems = [...items];
     newItems[index] = { ...newItems[index], [field]: value };
     setItems(newItems);
@@ -110,7 +113,7 @@ export default function Wishlist() {
 
   const handleAddItem = () => {
     if (items.length < 5) {
-      setItems([...items, { title: "", link: "" }]);
+      setItems([...items, { title: "", note: "" }]);
     }
   };
 
@@ -126,8 +129,8 @@ export default function Wishlist() {
     setSuccessMessage("");
     setSaving(true);
 
-    // Filter out empty items
-    const validItems = items.filter((item) => item.title.trim() && item.link.trim());
+    // Filter out empty items (title is required; note is optional)
+    const validItems = items.filter((item) => item.title.trim());
 
     if (validItems.length < 1) {
       setError("You must add at least 1 item to your wishlist");
@@ -251,10 +254,10 @@ export default function Wishlist() {
                       className="w-full px-3 py-2 bg-santa-dark border border-white/10 rounded focus:ring-2 focus:ring-santa-gold focus:border-transparent text-santa-snow placeholder-gray-500"
                     />
                     <input
-                      type="url"
-                      value={item.link}
-                      onChange={(e) => handleItemChange(index, "link", e.target.value)}
-                      placeholder="https://example.com/product"
+                      type="text"
+                      value={item.note ?? ""}
+                      onChange={(e) => handleItemChange(index, "note", e.target.value)}
+                      placeholder="Note (a description or a link)"
                       className="w-full px-3 py-2 bg-santa-dark border border-white/10 rounded focus:ring-2 focus:ring-santa-gold focus:border-transparent text-santa-snow placeholder-gray-500"
                     />
                   </div>
@@ -301,14 +304,20 @@ export default function Wishlist() {
                       {assignment.receiver.wishlistItems.map((item, index) => (
                         <li key={index} className="border-b border-white/5 pb-2 last:border-0">
                           <div className="font-medium text-santa-snow">{item.title}</div>
-                          <a
-                            href={item.link}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="text-sm text-santa-gold hover:underline break-all"
-                          >
-                            {item.link}
-                          </a>
+                          {item.note && (
+                            isLinkNote(item.note) ? (
+                              <a
+                                href={item.note}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-sm text-santa-gold hover:underline break-all"
+                              >
+                                {item.note}
+                              </a>
+                            ) : (
+                              <p className="text-sm text-gray-300 break-words">{item.note}</p>
+                            )
+                          )}
                         </li>
                       ))}
                     </ul>

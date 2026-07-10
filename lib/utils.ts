@@ -26,10 +26,11 @@ export function generateGroupInviteCode(): string {
   return code;
 }
 
-// Validate wishlist items (1-5 items with valid URLs)
-export function validateWishlistItems(items: Array<{ title: string; link: string }>): { valid: boolean; error?: string } {
-  if (items.length < 1) {
-    return { valid: false, error: "You must have at least 1 wishlist item" };
+// Validate wishlist items (0-5 items; each needs a title, note is optional free text or a URL).
+// An empty list is valid - it clears the person's wishlist.
+export function validateWishlistItems(items: Array<{ title: string; note?: string }>): { valid: boolean; error?: string } {
+  if (items.length === 0) {
+    return { valid: true };
   }
 
   if (items.length > 5) {
@@ -39,17 +40,6 @@ export function validateWishlistItems(items: Array<{ title: string; link: string
   for (const item of items) {
     if (!item.title || item.title.trim().length === 0) {
       return { valid: false, error: "All items must have a title" };
-    }
-
-    if (!item.link || item.link.trim().length === 0) {
-      return { valid: false, error: "All items must have a link" };
-    }
-
-    // Basic URL validation
-    try {
-      new URL(item.link);
-    } catch {
-      return { valid: false, error: `Invalid URL: ${item.link}` };
     }
   }
 

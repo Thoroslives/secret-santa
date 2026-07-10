@@ -49,12 +49,15 @@ export async function POST(request: NextRequest) {
 
     // Create new wishlist items
     const wishlistItems = await Promise.all(
-      items.map((item: { title: string; link: string }, index: number) =>
+      items.map((item: { title: string; note?: string }, index: number) =>
         prisma.wishlistItem.create({
           data: {
             personId,
             title: item.title.trim(),
-            link: item.link.trim(),
+            note: item.note?.trim() || null,
+            // `link` is still NOT NULL with no default at the DB level (dropped in Task 12's
+            // schema contract). We no longer read a user-supplied link, so write a placeholder.
+            link: "",
             order: index,
           },
         })
