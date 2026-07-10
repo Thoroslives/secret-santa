@@ -30,20 +30,28 @@ model Group {
   people       Person[]
   assignments  Assignment[]
   adminConfig  AdminConfig?
+  rounds       Round[]
+  blocks       Block[]
 }
 
 model Person {
-  id        String   @id @default(cuid())
-  groupId   String   // Links this person to their group
-  name      String
-  email     String?  // Optional email for magic link login
-  loginCode String   // Unique within this person's context
-  createdAt DateTime @default(now())
+  id                String   @id @default(cuid())
+  groupId           String   // Links this person to their group
+  name              String
+  email             String?  // Optional email for magic link login
+  loginCode         String   // Unique within this person's context
+  personalLinkToken String?  @unique // Unguessable token for personal wishlist/assignment links
+  active            Boolean  @default(true)
+  createdAt         DateTime @default(now())
 
   group         Group            @relation(fields: [groupId], references: [id], onDelete: Cascade)
   wishlistItems WishlistItem[]
   giverFor      Assignment[]     @relation("Giver")
   receiverFor   Assignment[]     @relation("Receiver")
+  blocksA       Block[]          @relation("BlockA")
+  blocksB       Block[]          @relation("BlockB")
+  pinsGiven     ForcedPin[]      @relation("PinGiver")
+  pinsReceived  ForcedPin[]      @relation("PinReceiver")
 
   @@unique([groupId, loginCode])  // Login code must be unique within a group
   @@unique([groupId, email])      // Email must be unique within a group (if provided)
@@ -58,6 +66,7 @@ model WishlistItem {
   person    Person   @relation(fields: [personId], references: [id], onDelete: Cascade)
   title     String
   link      String
+  note      String?
   order     Int
   createdAt DateTime @default(now())
 
@@ -70,16 +79,19 @@ model Assignment {
   giverId    String
   receiverId String
   year       Int
+  roundId    String?
   createdAt  DateTime @default(now())
 
   group    Group  @relation(fields: [groupId], references: [id], onDelete: Cascade)
   giver    Person @relation("Giver", fields: [giverId], references: [id], onDelete: Cascade)
   receiver Person @relation("Receiver", fields: [receiverId], references: [id], onDelete: Cascade)
+  round    Round? @relation(fields: [roundId], references: [id], onDelete: Cascade)
 
   @@unique([giverId, year])
   @@index([groupId])
   @@index([giverId])
   @@index([receiverId])
+  @@index([roundId])
 }
 
 model AdminConfig {
@@ -90,4 +102,42 @@ model AdminConfig {
   updatedAt      DateTime @updatedAt
 
   group Group @relation(fields: [groupId], references: [id], onDelete: Cascade)
+}
+
+model Round {
+  id String @id @default(cuid())
+  groupId String
+  year Int
+  status String @default("draft")   // draft | generated | sent
+  sentAt DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  group Group @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  assignments Assignment[]
+  forcedPins ForcedPin[]
+  @@unique([groupId, year])
+  @@index([groupId])
+}
+model Block {
+  id String @id @default(cuid())
+  groupId String
+  personAId String
+  personBId String
+  createdAt DateTime @default(now())
+  group Group @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  personA Person @relation("BlockA", fields: [personAId], references: [id], onDelete: Cascade)
+  personB Person @relation("BlockB", fields: [personBId], references: [id], onDelete: Cascade)
+  @@index([groupId])
+}
+model ForcedPin {
+  id String @id @default(cuid())
+  roundId String
+  giverId String
+  receiverId String
+  createdAt DateTime @default(now())
+  round Round @relation(fields: [roundId], references: [id], onDelete: Cascade)
+  giver Person @relation("PinGiver", fields: [giverId], references: [id], onDelete: Cascade)
+  receiver Person @relation("PinReceiver", fields: [receiverId], references: [id], onDelete: Cascade)
+  @@unique([roundId, giverId])
+  @@index([roundId])
 }
