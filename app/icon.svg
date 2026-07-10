@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Secret Santa gift">
+  <rect width="512" height="512" rx="112" fill="#14532d"/>
+  <rect x="132" y="246" width="248" height="150" rx="14" fill="#f4ead5"/>
+  <rect x="116" y="212" width="280" height="50" rx="14" fill="#faf3e2"/>
+  <rect x="238" y="212" width="36" height="184" fill="#c9a227"/>
+  <path d="M238 212c-4-44-52-62-80-40-24 19-8 54 40 54h40z" fill="#d8b44a"/>
+  <path d="M274 212c4-44 52-62 80-40 24 19 8 54-40 54h-40z" fill="#d8b44a"/>
+  <circle cx="256" cy="212" r="19" fill="#b8901f"/>
+</svg>
