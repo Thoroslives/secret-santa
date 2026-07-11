@@ -54,13 +54,13 @@ export async function DELETE(request: NextRequest) {
       return NextResponse.json({ error: "Block id is required" }, { status: 400 });
     }
 
+    const forbidden = await requireAdmin();
+    if (forbidden) return forbidden;
+
     const block = await prisma.block.findUnique({ where: { id } });
     if (!block) {
       return NextResponse.json({ error: "Block not found" }, { status: 404 });
     }
-
-    const forbidden = await requireAdmin();
-    if (forbidden) return forbidden;
 
     await prisma.block.delete({ where: { id } });
     return NextResponse.json({ success: true });

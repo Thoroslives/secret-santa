@@ -1612,6 +1612,19 @@ describe('/api/blocks', () => {
     expect(mockPrismaDb.block.delete).not.toHaveBeenCalled();
   });
 
+  // P4 followups (loose end 1): requireAdmin() now runs BEFORE the findUnique
+  // lookup, so a non-admin gets 403 - not 404 - even for an id that doesn't
+  // exist. Proves there's no 404-vs-403 existence oracle for non-admins.
+  it('DELETE returns 403 (not 404) for a non-admin on a non-existent id - admin check precedes the lookup', async () => {
+    delete mockSession.isAdmin;
+    mockSession.isLoggedIn = true;
+    mockSession.personId = 'p-1';
+    mockSession.groupId = 'group-1';
+    const res = await deleteBlock(makeDeleteRequest(url + '?id=does-not-exist'));
+    expect(res.status).toBe(403);
+    expect(mockPrismaDb.block.findUnique).not.toHaveBeenCalled();
+  });
+
   // P4 collapse: no per-group ownership left - the super-admin can delete a block from any group.
   it('super-admin can delete a block from a group other than any specific one', async () => {
     mockPrismaDb.block.findUnique.mockResolvedValue({ id: 'blk-3', groupId: 'some-other-group' });
@@ -1706,6 +1719,19 @@ describe('/api/pins', () => {
     const res = await deletePin(makeDeleteRequest(url + '?id=pin-1'));
     expect(res.status).toBe(403);
     expect(mockPrismaDb.forcedPin.delete).not.toHaveBeenCalled();
+  });
+
+  // P4 followups (loose end 1): requireAdmin() now runs BEFORE the findUnique
+  // lookup, so a non-admin gets 403 - not 404 - even for an id that doesn't
+  // exist. Proves there's no 404-vs-403 existence oracle for non-admins.
+  it('DELETE returns 403 (not 404) for a non-admin on a non-existent id - admin check precedes the lookup', async () => {
+    delete mockSession.isAdmin;
+    mockSession.isLoggedIn = true;
+    mockSession.personId = 'p-1';
+    mockSession.groupId = 'group-1';
+    const res = await deletePin(makeDeleteRequest(url + '?id=does-not-exist'));
+    expect(res.status).toBe(403);
+    expect(mockPrismaDb.forcedPin.findUnique).not.toHaveBeenCalled();
   });
 
   // P4 collapse: no per-group ownership left - the super-admin can delete a pin from any group.

@@ -60,6 +60,9 @@ export async function DELETE(request: NextRequest) {
       return NextResponse.json({ error: "Pin id is required" }, { status: 400 });
     }
 
+    const forbidden = await requireAdmin();
+    if (forbidden) return forbidden;
+
     const pin = await prisma.forcedPin.findUnique({
       where: { id },
       include: { round: true },
@@ -67,9 +70,6 @@ export async function DELETE(request: NextRequest) {
     if (!pin) {
       return NextResponse.json({ error: "Pin not found" }, { status: 404 });
     }
-
-    const forbidden = await requireAdmin();
-    if (forbidden) return forbidden;
 
     if (pin.round.status === "sent") {
       return NextResponse.json(
