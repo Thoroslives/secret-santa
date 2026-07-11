@@ -1198,6 +1198,7 @@ describe('/api/pins', () => {
     mockSession.isAdmin = true;
     mockSession.adminGroupId = 'group-1';
     (ensureRound as jest.Mock).mockResolvedValue({ id: 'round-1', groupId: 'group-1', year: 2026, status: 'draft' });
+    (getActiveYear as jest.Mock).mockResolvedValue(2026);
   });
 
   it('returns 400 when fields are missing', async () => {
@@ -1236,6 +1237,15 @@ describe('/api/pins', () => {
     mockPrismaDb.forcedPin.delete.mockResolvedValue({ id: 'pin-1' });
     const res = await deletePin(makeDeleteRequest(url + '?id=pin-1'));
     expect(res.status).toBe(200);
+  });
+
+  it('ignores a client-supplied year and resolves the active year server-side', async () => {
+    mockPrismaDb.forcedPin.upsert.mockResolvedValue({ id: 'pin-1' });
+
+    // A client trying to sneak a different year in the body must not affect
+    // which round the pin lands on - only Group.year (via getActiveYear) does.
+    await createPin(makePostRequest(url, { groupId: 'group-1', year: 1999, giverId: 'g', receiverId: 'r' }));
+    expect(ensureRound).toHaveBeenCalledWith('group-1', 2026);
   });
 });
 

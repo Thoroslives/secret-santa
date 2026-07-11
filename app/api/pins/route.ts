@@ -1,20 +1,21 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { requireAdminForGroup } from "@/lib/admin";
-import { ensureRound } from "@/lib/rounds";
+import { ensureRound, getActiveYear } from "@/lib/rounds";
 
 // Forced pins are directional (this giver MUST draw that receiver) and scoped
 // to one round (year). GET is not exposed - the dashboard reads pins via the
 // round/group fetch.
 
-// POST /api/pins {groupId, year, giverId, receiverId}
+// POST /api/pins {groupId, giverId, receiverId} - year is resolved server-side
+// (active year), never client-supplied.
 export async function POST(request: NextRequest) {
   try {
-    const { groupId, year, giverId, receiverId } = await request.json();
+    const { groupId, giverId, receiverId } = await request.json();
 
-    if (!groupId || !year || !giverId || !receiverId) {
+    if (!groupId || !giverId || !receiverId) {
       return NextResponse.json(
-        { error: "groupId, year, giverId and receiverId are required" },
+        { error: "groupId, giverId and receiverId are required" },
         { status: 400 }
       );
     }
@@ -29,7 +30,8 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const round = await ensureRound(groupId, Number(year));
+    const year = await getActiveYear(groupId);
+    const round = await ensureRound(groupId, year);
     if (round.status === "sent") {
       return NextResponse.json(
         { error: "This round has already been sent; pins are locked" },
