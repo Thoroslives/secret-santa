@@ -22,6 +22,12 @@ interface GroupBudget {
   budgetCurrency?: string;
 }
 
+interface GroupSummary {
+  id: string;
+  name: string;
+  year: number;
+}
+
 export default function AdminDashboard() {
   const [people, setPeople] = useState<Person[]>([]);
   const [assignments, setAssignments] = useState<Assignment[]>([]);
@@ -31,7 +37,9 @@ export default function AdminDashboard() {
   const [error, setError] = useState("");
   const [successMessage, setSuccessMessage] = useState("");
   const [shareLinks, setShareLinks] = useState<{ name: string; link: string }[]>([]);
-  const [groupInfo, setGroupInfo] = useState({ id: "", name: "", inviteCode: "" });
+  const [groups, setGroups] = useState<GroupSummary[]>([]);
+  const [activeGroupId, setActiveGroupId] = useState("");
+  const [newGroupName, setNewGroupName] = useState("");
   const [activeYear, setActiveYear] = useState<number | null>(null);
   const [budget, setBudget] = useState<GroupBudget>({ budgetAmount: undefined, budgetCurrency: "USD" });
   const [budgetAmount, setBudgetAmount] = useState("");
@@ -51,7 +59,10 @@ export default function AdminDashboard() {
   }, [activeYear]);
 
   useEffect(() => {
-    // Check admin session from server
+    // Check admin session from server. The super-admin owns every group now,
+    // so there is no adminGroupId/adminInviteCode on the session response -
+    // once we know the caller is an admin, fetch the list of groups they
+    // administer instead.
     fetch("/api/auth/session")
       .then((res) => res.json())
       .then((session) => {
@@ -60,16 +71,88 @@ export default function AdminDashboard() {
           return;
         }
 
-        // P4-B4: the admin session no longer carries a single adminGroupId -
-        // the super-admin owns every group, and this dashboard is still
-        // single-group. B4 rewrites this page with a group picker; until
-        // then there is no group to load data for.
-        setLoading(false);
+        loadGroups();
       })
       .catch(() => {
         router.push("/admin");
       });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [router]);
+
+  // Fetches every group the admin can administer. Used on mount and again
+  // after creating a group from the empty state. Defaults the picker to the
+  // first group (alphabetical, per the API's ordering) and loads its data;
+  // an empty list just stops the loading spinner so the empty-state prompt
+  // can render.
+  const loadGroups = async () => {
+    try {
+      const res = await fetch("/api/groups");
+      if (!res.ok) {
+        setGroups([]);
+        setActiveGroupId("");
+        setError("Failed to load groups");
+        setLoading(false);
+        return;
+      }
+
+      const data: GroupSummary[] = await res.json();
+      setGroups(data);
+
+      if (data.length > 0) {
+        setActiveGroupId(data[0].id);
+        await loadData(data[0].id);
+      } else {
+        setActiveGroupId("");
+        setLoading(false);
+      }
+    } catch (err) {
+      setGroups([]);
+      setActiveGroupId("");
+      setError("Failed to load groups");
+      setLoading(false);
+    }
+  };
+
+  const handleSelectGroup = (groupId: string) => {
+    setActiveGroupId(groupId);
+    setError("");
+    setSuccessMessage("");
+    setShareLinks([]);
+    setSeedPairs([{ giverId: "", receiverId: "" }]);
+    loadData(groupId);
+  };
+
+  const handleCreateGroup = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError("");
+    setSuccessMessage("");
+
+    if (!newGroupName.trim()) {
+      setError("Group name is required");
+      return;
+    }
+
+    try {
+      const res = await fetch("/api/groups/create", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ groupName: newGroupName.trim() }),
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        setError(data.error || "Failed to create group");
+        return;
+      }
+
+      setNewGroupName("");
+      setSuccessMessage(`Created ${data.group.name}`);
+      await loadGroups();
+    } catch (err) {
+      setError("An error occurred");
+    }
+  };
 
   const loadData = async (groupId: string) => {
     try {
@@ -126,7 +209,7 @@ export default function AdminDashboard() {
         body: JSON.stringify({
           name: newPersonName,
           email: newPersonEmail.trim() || undefined,
-          groupId: groupInfo.id
+          groupId: activeGroupId
         }),
       });
 
@@ -141,7 +224,7 @@ export default function AdminDashboard() {
       setSuccessMessage(`Added ${data.person.name}${emailMsg}`);
       setNewPersonName("");
       setNewPersonEmail("");
-      loadData(groupInfo.id);
+      loadData(activeGroupId);
     } catch (err) {
       setError("An error occurred");
     }
@@ -166,7 +249,7 @@ export default function AdminDashboard() {
       }
 
       setSuccessMessage(`Deleted ${name}`);
-      loadData(groupInfo.id);
+      loadData(activeGroupId);
     } catch (err) {
       setError("An error occurred");
     }
@@ -188,7 +271,7 @@ export default function AdminDashboard() {
       const res = await fetch("/api/rounds/generate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ groupId: groupInfo.id }),
+        body: JSON.stringify({ groupId: activeGroupId }),
       });
 
       const data = await res.json();
@@ -199,7 +282,7 @@ export default function AdminDashboard() {
       }
 
       setSuccessMessage(`Generated ${data.count} Secret Santa assignments!`);
-      loadData(groupInfo.id);
+      loadData(activeGroupId);
     } catch (err) {
       setError("An error occurred");
     }
@@ -215,7 +298,7 @@ export default function AdminDashboard() {
       const res = await fetch("/api/rounds/send", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ groupId: groupInfo.id }),
+        body: JSON.stringify({ groupId: activeGroupId }),
       });
       const data = await res.json();
       if (!res.ok) {
@@ -248,7 +331,7 @@ export default function AdminDashboard() {
       const res = await fetch("/api/rounds/rollover", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ groupId: groupInfo.id }),
+        body: JSON.stringify({ groupId: activeGroupId }),
       });
 
       const data = await res.json();
@@ -260,7 +343,7 @@ export default function AdminDashboard() {
 
       setShareLinks([]);
       setSuccessMessage(`Started ${data.year}. Wishlists have been reset for the new year.`);
-      loadData(groupInfo.id);
+      loadData(activeGroupId);
     } catch (err) {
       setError("An error occurred");
     }
@@ -298,7 +381,7 @@ export default function AdminDashboard() {
       const res = await fetch("/api/rounds/seed", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ groupId: groupInfo.id, year: yearNum, pairs }),
+        body: JSON.stringify({ groupId: activeGroupId, year: yearNum, pairs }),
       });
       const data = await res.json();
       if (!res.ok) {
@@ -321,7 +404,7 @@ export default function AdminDashboard() {
     setSuccessMessage("");
 
     try {
-      const res = await fetch(`/api/assignments?groupId=${groupInfo.id}`, {
+      const res = await fetch(`/api/assignments?groupId=${activeGroupId}`, {
         method: "DELETE",
       });
 
@@ -331,7 +414,7 @@ export default function AdminDashboard() {
       }
 
       setSuccessMessage("Deleted all assignments");
-      loadData(groupInfo.id);
+      loadData(activeGroupId);
     } catch (err) {
       setError("An error occurred");
     }
@@ -350,7 +433,7 @@ export default function AdminDashboard() {
     }
 
     try {
-      const res = await fetch(`/api/groups/${groupInfo.id}`, {
+      const res = await fetch(`/api/groups/${activeGroupId}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -389,7 +472,7 @@ export default function AdminDashboard() {
     }
 
     try {
-      const res = await fetch(`/api/groups/${groupInfo.id}`, {
+      const res = await fetch(`/api/groups/${activeGroupId}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -430,10 +513,25 @@ export default function AdminDashboard() {
         <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4 mb-8">
           <div className="min-w-0">
             <h1 className="text-2xl sm:text-4xl font-bold text-santa-red font-display">Admin Dashboard</h1>
-            <p className="text-gray-300 mt-1 text-sm sm:text-base truncate">{groupInfo.name}</p>
-            <p className="text-sm text-gray-400">
-              Invite Code: <code className="bg-santa-dark border border-white/10 px-2 py-1 rounded font-mono text-santa-gold text-xs sm:text-sm">{groupInfo.inviteCode}</code>
-            </p>
+            {groups.length > 0 && (
+              <div className="flex items-center gap-2 mt-2">
+                <label htmlFor="groupPicker" className="text-sm text-gray-400">
+                  Group
+                </label>
+                <select
+                  id="groupPicker"
+                  value={activeGroupId}
+                  onChange={(e) => handleSelectGroup(e.target.value)}
+                  className="px-3 py-2 bg-santa-dark border border-white/10 rounded-lg text-santa-snow text-sm sm:text-base max-w-full"
+                >
+                  {groups.map((g) => (
+                    <option key={g.id} value={g.id}>
+                      {g.name} ({g.year})
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
           </div>
           <button
             onClick={handleLogout}
@@ -455,456 +553,489 @@ export default function AdminDashboard() {
           </div>
         )}
 
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-          {/* Add Person Section */}
-          <div className="bg-[#151528] p-6 rounded-2xl border border-white/10 card-glow">
-            <h2 className="text-2xl font-bold text-santa-snow mb-4">Add Person</h2>
-            <form onSubmit={handleAddPerson} className="space-y-4">
+        {groups.length === 0 ? (
+          <div className="bg-[#151528] p-6 rounded-2xl border border-white/10 card-glow max-w-lg">
+            <h2 className="text-2xl font-bold text-santa-snow mb-2">No groups yet</h2>
+            <p className="text-gray-400 mb-4">
+              Create a group to start administering people, assignments, and settings.
+            </p>
+            <form onSubmit={handleCreateGroup} className="space-y-4">
               <div>
-                <label htmlFor="name" className="block text-sm font-medium text-gray-300 mb-2">
-                  Name <span className="text-santa-red">*</span>
+                <label htmlFor="newGroupName" className="block text-sm font-medium text-gray-300 mb-2">
+                  Group name
                 </label>
                 <input
                   type="text"
-                  id="name"
-                  value={newPersonName}
-                  onChange={(e) => setNewPersonName(e.target.value)}
+                  id="newGroupName"
+                  value={newGroupName}
+                  onChange={(e) => setNewGroupName(e.target.value)}
                   className="w-full px-4 py-2 bg-santa-dark border border-white/10 rounded-lg focus:ring-2 focus:ring-santa-gold focus:border-transparent text-santa-snow placeholder-gray-500"
-                  placeholder="Enter person's name"
+                  placeholder="Smith Family Secret Santa"
                   required
                 />
               </div>
-
-              <div>
-                <label htmlFor="email" className="block text-sm font-medium text-gray-300 mb-2">
-                  Email <span className="text-gray-500">(optional)</span>
-                </label>
-                <input
-                  type="email"
-                  id="email"
-                  value={newPersonEmail}
-                  onChange={(e) => setNewPersonEmail(e.target.value)}
-                  className="w-full px-4 py-2 bg-santa-dark border border-white/10 rounded-lg focus:ring-2 focus:ring-santa-gold focus:border-transparent text-santa-snow placeholder-gray-500"
-                  placeholder="person@example.com"
-                />
-                <p className="text-xs text-gray-500 mt-1">
-                  If provided, they can request their personal login link by email (self-service)
-                </p>
-              </div>
-
               <button
                 type="submit"
                 className="w-full bg-santa-green text-white py-2 rounded-xl font-semibold hover:bg-santa-green-dark transition-all duration-300 hover:scale-105 transform"
               >
-                Add Person
+                Create group
               </button>
             </form>
           </div>
+        ) : (
+          <>
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+            {/* Add Person Section */}
+            <div className="bg-[#151528] p-6 rounded-2xl border border-white/10 card-glow">
+              <h2 className="text-2xl font-bold text-santa-snow mb-4">Add Person</h2>
+              <form onSubmit={handleAddPerson} className="space-y-4">
+                <div>
+                  <label htmlFor="name" className="block text-sm font-medium text-gray-300 mb-2">
+                    Name <span className="text-santa-red">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    id="name"
+                    value={newPersonName}
+                    onChange={(e) => setNewPersonName(e.target.value)}
+                    className="w-full px-4 py-2 bg-santa-dark border border-white/10 rounded-lg focus:ring-2 focus:ring-santa-gold focus:border-transparent text-santa-snow placeholder-gray-500"
+                    placeholder="Enter person's name"
+                    required
+                  />
+                </div>
 
-          {/* Budget Management */}
-          <div className="bg-[#151528] p-6 rounded-2xl border border-white/10 card-glow">
-            <h2 className="text-2xl font-bold text-santa-snow mb-4">Gift Budget</h2>
-            <form onSubmit={handleUpdateBudget} className="space-y-4">
-              <div>
-                <label htmlFor="budgetAmount" className="block text-sm font-medium text-gray-300 mb-2">
-                  Budget Amount <span className="text-gray-500">(optional)</span>
-                </label>
-                <input
-                  type="number"
-                  id="budgetAmount"
-                  value={budgetAmount}
-                  onChange={(e) => setBudgetAmount(e.target.value)}
-                  className="w-full px-4 py-2 bg-santa-dark border border-white/10 rounded-lg focus:ring-2 focus:ring-santa-gold focus:border-transparent text-santa-snow placeholder-gray-500"
-                  placeholder="50.00"
-                  step="0.01"
-                  min="0"
-                />
-              </div>
+                <div>
+                  <label htmlFor="email" className="block text-sm font-medium text-gray-300 mb-2">
+                    Email <span className="text-gray-500">(optional)</span>
+                  </label>
+                  <input
+                    type="email"
+                    id="email"
+                    value={newPersonEmail}
+                    onChange={(e) => setNewPersonEmail(e.target.value)}
+                    className="w-full px-4 py-2 bg-santa-dark border border-white/10 rounded-lg focus:ring-2 focus:ring-santa-gold focus:border-transparent text-santa-snow placeholder-gray-500"
+                    placeholder="person@example.com"
+                  />
+                  <p className="text-xs text-gray-500 mt-1">
+                    If provided, they can request their personal login link by email (self-service)
+                  </p>
+                </div>
 
-              <div>
-                <label htmlFor="budgetCurrency" className="block text-sm font-medium text-gray-300 mb-2">
-                  Currency
-                </label>
-                <select
-                  id="budgetCurrency"
-                  value={budgetCurrency}
-                  onChange={(e) => setBudgetCurrency(e.target.value)}
-                  className="w-full px-4 py-2 bg-santa-dark border border-white/10 rounded-lg focus:ring-2 focus:ring-santa-gold focus:border-transparent text-santa-snow"
+                <button
+                  type="submit"
+                  className="w-full bg-santa-green text-white py-2 rounded-xl font-semibold hover:bg-santa-green-dark transition-all duration-300 hover:scale-105 transform"
                 >
-                  <option value="USD">USD - US Dollar</option>
-                  <option value="EUR">EUR - Euro</option>
-                  <option value="GBP">GBP - British Pound</option>
-                  <option value="CAD">CAD - Canadian Dollar</option>
-                  <option value="AUD">AUD - Australian Dollar</option>
-                  <option value="ZAR">ZAR - South African Rand</option>
-                  <option value="JPY">JPY - Japanese Yen</option>
-                  <option value="CHF">CHF - Swiss Franc</option>
-                  <option value="SEK">SEK - Swedish Krona</option>
-                  <option value="NOK">NOK - Norwegian Krone</option>
-                  <option value="DKK">DKK - Danish Krone</option>
-                  <option value="NZD">NZD - New Zealand Dollar</option>
-                  <option value="MXN">MXN - Mexican Peso</option>
-                  <option value="BRL">BRL - Brazilian Real</option>
-                  <option value="INR">INR - Indian Rupee</option>
-                  <option value="CNY">CNY - Chinese Yuan</option>
-                  <option value="KRW">KRW - South Korean Won</option>
-                  <option value="SGD">SGD - Singapore Dollar</option>
-                </select>
-              </div>
+                  Add Person
+                </button>
+              </form>
+            </div>
 
-              <div className="text-sm text-gray-400">
-                {budget.budgetAmount ? (
-                  <p>Current budget: <span className="font-semibold text-santa-gold">{budget.budgetCurrency} {budget.budgetAmount}</span></p>
+            {/* Budget Management */}
+            <div className="bg-[#151528] p-6 rounded-2xl border border-white/10 card-glow">
+              <h2 className="text-2xl font-bold text-santa-snow mb-4">Gift Budget</h2>
+              <form onSubmit={handleUpdateBudget} className="space-y-4">
+                <div>
+                  <label htmlFor="budgetAmount" className="block text-sm font-medium text-gray-300 mb-2">
+                    Budget Amount <span className="text-gray-500">(optional)</span>
+                  </label>
+                  <input
+                    type="number"
+                    id="budgetAmount"
+                    value={budgetAmount}
+                    onChange={(e) => setBudgetAmount(e.target.value)}
+                    className="w-full px-4 py-2 bg-santa-dark border border-white/10 rounded-lg focus:ring-2 focus:ring-santa-gold focus:border-transparent text-santa-snow placeholder-gray-500"
+                    placeholder="50.00"
+                    step="0.01"
+                    min="0"
+                  />
+                </div>
+
+                <div>
+                  <label htmlFor="budgetCurrency" className="block text-sm font-medium text-gray-300 mb-2">
+                    Currency
+                  </label>
+                  <select
+                    id="budgetCurrency"
+                    value={budgetCurrency}
+                    onChange={(e) => setBudgetCurrency(e.target.value)}
+                    className="w-full px-4 py-2 bg-santa-dark border border-white/10 rounded-lg focus:ring-2 focus:ring-santa-gold focus:border-transparent text-santa-snow"
+                  >
+                    <option value="USD">USD - US Dollar</option>
+                    <option value="EUR">EUR - Euro</option>
+                    <option value="GBP">GBP - British Pound</option>
+                    <option value="CAD">CAD - Canadian Dollar</option>
+                    <option value="AUD">AUD - Australian Dollar</option>
+                    <option value="ZAR">ZAR - South African Rand</option>
+                    <option value="JPY">JPY - Japanese Yen</option>
+                    <option value="CHF">CHF - Swiss Franc</option>
+                    <option value="SEK">SEK - Swedish Krona</option>
+                    <option value="NOK">NOK - Norwegian Krone</option>
+                    <option value="DKK">DKK - Danish Krone</option>
+                    <option value="NZD">NZD - New Zealand Dollar</option>
+                    <option value="MXN">MXN - Mexican Peso</option>
+                    <option value="BRL">BRL - Brazilian Real</option>
+                    <option value="INR">INR - Indian Rupee</option>
+                    <option value="CNY">CNY - Chinese Yuan</option>
+                    <option value="KRW">KRW - South Korean Won</option>
+                    <option value="SGD">SGD - Singapore Dollar</option>
+                  </select>
+                </div>
+
+                <div className="text-sm text-gray-400">
+                  {budget.budgetAmount ? (
+                    <p>Current budget: <span className="font-semibold text-santa-gold">{budget.budgetCurrency} {budget.budgetAmount}</span></p>
+                  ) : (
+                    <p className="italic">No budget set</p>
+                  )}
+                </div>
+
+                <button
+                  type="submit"
+                  className="w-full bg-santa-gold text-santa-dark py-2 rounded-xl font-semibold hover:bg-santa-gold-dark transition-all duration-300 hover:scale-105 transform"
+                >
+                  Update Budget
+                </button>
+              </form>
+            </div>
+
+            {/* Secret Santa Assignments */}
+            <div className="bg-[#151528] p-6 rounded-2xl border border-white/10 card-glow">
+              <h2 className="text-2xl font-bold text-santa-snow mb-4">Secret Santa</h2>
+              <div className="space-y-4">
+                <p className="text-gray-400">
+                  {people.length} people registered
+                  {assignments.length > 0 && ` \u2022 ${assignments.length} assignments created`}
+                </p>
+                {assignments.length === 0 ? (
+                  <button
+                    onClick={handleGenerateAssignments}
+                    disabled={people.length < 3}
+                    className="w-full bg-santa-red text-white py-2 rounded-xl font-semibold hover:bg-santa-red-dark transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed hover:scale-105 transform"
+                  >
+                    Generate Assignments
+                  </button>
                 ) : (
-                  <p className="italic">No budget set</p>
+                  <>
+                    <button
+                      onClick={handleSendMatches}
+                      className="w-full bg-green-600 text-white py-2 rounded-xl font-semibold hover:bg-green-700 transition-all duration-300 hover:scale-105 transform"
+                    >
+                      Send matches
+                    </button>
+                    <button
+                      onClick={handleDeleteAssignments}
+                      className="w-full bg-santa-gold text-santa-dark py-2 rounded-xl font-semibold hover:bg-santa-gold-dark transition-all duration-300 hover:scale-105 transform"
+                    >
+                      Delete &amp; Regenerate
+                    </button>
+                  </>
+                )}
+                {people.length < 3 && (
+                  <p className="text-sm text-santa-red">Need at least 3 people to generate assignments</p>
+                )}
+                <div className="pt-4 mt-4 border-t border-white/10">
+                  <button
+                    onClick={handleRollover}
+                    className="w-full bg-white/10 text-santa-snow py-2 rounded-xl font-semibold hover:bg-white/20 transition border border-white/10"
+                  >
+                    Start next year
+                  </button>
+                  <p className="text-xs text-gray-500 mt-2">
+                    Moves this year&apos;s matches to history and resets everyone&apos;s wishlist for the new year.
+                  </p>
+                </div>
+                {shareLinks.length > 0 && (
+                  <div className="mt-4 text-sm text-gray-300">
+                    <p className="font-semibold text-santa-snow mb-1">Personal links (copy to share manually):</p>
+                    <ul className="space-y-1">
+                      {shareLinks.map((s) => (
+                        <li key={s.link} className="break-all">
+                          <span className="text-santa-snow">{s.name}:</span> {s.link}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
                 )}
               </div>
+            </div>
 
-              <button
-                type="submit"
-                className="w-full bg-santa-gold text-santa-dark py-2 rounded-xl font-semibold hover:bg-santa-gold-dark transition-all duration-300 hover:scale-105 transform"
-              >
-                Update Budget
-              </button>
-            </form>
-          </div>
-
-          {/* Secret Santa Assignments */}
-          <div className="bg-[#151528] p-6 rounded-2xl border border-white/10 card-glow">
-            <h2 className="text-2xl font-bold text-santa-snow mb-4">Secret Santa</h2>
-            <div className="space-y-4">
-              <p className="text-gray-400">
-                {people.length} people registered
-                {assignments.length > 0 && ` \u2022 ${assignments.length} assignments created`}
-              </p>
-              {assignments.length === 0 ? (
-                <button
-                  onClick={handleGenerateAssignments}
-                  disabled={people.length < 3}
-                  className="w-full bg-santa-red text-white py-2 rounded-xl font-semibold hover:bg-santa-red-dark transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed hover:scale-105 transform"
-                >
-                  Generate Assignments
-                </button>
-              ) : (
-                <>
-                  <button
-                    onClick={handleSendMatches}
-                    className="w-full bg-green-600 text-white py-2 rounded-xl font-semibold hover:bg-green-700 transition-all duration-300 hover:scale-105 transform"
-                  >
-                    Send matches
-                  </button>
-                  <button
-                    onClick={handleDeleteAssignments}
-                    className="w-full bg-santa-gold text-santa-dark py-2 rounded-xl font-semibold hover:bg-santa-gold-dark transition-all duration-300 hover:scale-105 transform"
-                  >
-                    Delete &amp; Regenerate
-                  </button>
-                </>
-              )}
-              {people.length < 3 && (
-                <p className="text-sm text-santa-red">Need at least 3 people to generate assignments</p>
-              )}
-              <div className="pt-4 mt-4 border-t border-white/10">
-                <button
-                  onClick={handleRollover}
-                  className="w-full bg-white/10 text-santa-snow py-2 rounded-xl font-semibold hover:bg-white/20 transition border border-white/10"
-                >
-                  Start next year
-                </button>
-                <p className="text-xs text-gray-500 mt-2">
-                  Moves this year&apos;s matches to history and resets everyone&apos;s wishlist for the new year.
-                </p>
-              </div>
-              {shareLinks.length > 0 && (
-                <div className="mt-4 text-sm text-gray-300">
-                  <p className="font-semibold text-santa-snow mb-1">Personal links (copy to share manually):</p>
-                  <ul className="space-y-1">
-                    {shareLinks.map((s) => (
-                      <li key={s.link} className="break-all">
-                        <span className="text-santa-snow">{s.name}:</span> {s.link}
-                      </li>
-                    ))}
-                  </ul>
+            {/* Group Settings */}
+            <div className="bg-[#151528] p-6 rounded-2xl border border-white/10 card-glow">
+              <h2 className="text-2xl font-bold text-santa-snow mb-4">Settings</h2>
+              <form onSubmit={handleUpdateSettings} className="space-y-4">
+                <div>
+                  <label htmlFor="suggestionCap" className="block text-sm font-medium text-gray-300 mb-2">
+                    Suggestion Cap
+                  </label>
+                  <input
+                    type="number"
+                    id="suggestionCap"
+                    value={suggestionCap}
+                    onChange={(e) => setSuggestionCap(Number(e.target.value))}
+                    className="w-full px-4 py-2 bg-santa-dark border border-white/10 rounded-lg focus:ring-2 focus:ring-santa-gold focus:border-transparent text-santa-snow placeholder-gray-500"
+                    min="0"
+                    max="10"
+                    step="1"
+                  />
+                  <p className="text-xs text-gray-500 mt-1">
+                    Max gift suggestions each person can add for their match (0-10).
+                  </p>
                 </div>
-              )}
+
+                <div>
+                  <label htmlFor="previousYearMemory" className="block text-sm font-medium text-gray-300 mb-2">
+                    Previous Year Memory
+                  </label>
+                  <input
+                    type="number"
+                    id="previousYearMemory"
+                    value={previousYearMemory}
+                    onChange={(e) => setPreviousYearMemory(Number(e.target.value))}
+                    className="w-full px-4 py-2 bg-santa-dark border border-white/10 rounded-lg focus:ring-2 focus:ring-santa-gold focus:border-transparent text-santa-snow placeholder-gray-500"
+                    min="0"
+                    max="10"
+                    step="1"
+                  />
+                  <p className="text-xs text-gray-500 mt-1">
+                    How many previous years&apos; pairs to avoid repeating in the draw (0-10).
+                  </p>
+                </div>
+
+                <button
+                  type="submit"
+                  className="w-full bg-santa-gold text-santa-dark py-2 rounded-xl font-semibold hover:bg-santa-gold-dark transition-all duration-300 hover:scale-105 transform"
+                >
+                  Save Settings
+                </button>
+              </form>
             </div>
           </div>
 
-          {/* Group Settings */}
-          <div className="bg-[#151528] p-6 rounded-2xl border border-white/10 card-glow">
-            <h2 className="text-2xl font-bold text-santa-snow mb-4">Settings</h2>
-            <form onSubmit={handleUpdateSettings} className="space-y-4">
+          {/* Seed last year's pairs - one-time backfill so this year's draw can
+              avoid repeating them, even before this app has ever run a draw. */}
+          <details className="mt-8 bg-[#151528] p-6 rounded-2xl border border-white/10 card-glow">
+            <summary className="text-2xl font-bold text-santa-snow cursor-pointer">
+              Seed last year&apos;s pairs
+            </summary>
+            <p className="text-sm text-gray-400 mt-2 mb-4">
+              Record who gave to whom last year by hand, so this year&apos;s draw knows to avoid repeating those
+              pairs. Only needed once, to backfill history from before this app was used.
+            </p>
+            <form onSubmit={handleSeedSubmit} className="space-y-4">
               <div>
-                <label htmlFor="suggestionCap" className="block text-sm font-medium text-gray-300 mb-2">
-                  Suggestion Cap
+                <label htmlFor="seedYear" className="block text-sm font-medium text-gray-300 mb-2">
+                  Year
                 </label>
                 <input
                   type="number"
-                  id="suggestionCap"
-                  value={suggestionCap}
-                  onChange={(e) => setSuggestionCap(Number(e.target.value))}
-                  className="w-full px-4 py-2 bg-santa-dark border border-white/10 rounded-lg focus:ring-2 focus:ring-santa-gold focus:border-transparent text-santa-snow placeholder-gray-500"
-                  min="0"
-                  max="10"
-                  step="1"
+                  id="seedYear"
+                  value={seedYear}
+                  onChange={(e) => setSeedYear(e.target.value)}
+                  className="w-full sm:w-40 px-4 py-2 bg-santa-dark border border-white/10 rounded-lg focus:ring-2 focus:ring-santa-gold focus:border-transparent text-santa-snow"
                 />
-                <p className="text-xs text-gray-500 mt-1">
-                  Max gift suggestions each person can add for their match (0-10).
-                </p>
               </div>
 
-              <div>
-                <label htmlFor="previousYearMemory" className="block text-sm font-medium text-gray-300 mb-2">
-                  Previous Year Memory
-                </label>
-                <input
-                  type="number"
-                  id="previousYearMemory"
-                  value={previousYearMemory}
-                  onChange={(e) => setPreviousYearMemory(Number(e.target.value))}
-                  className="w-full px-4 py-2 bg-santa-dark border border-white/10 rounded-lg focus:ring-2 focus:ring-santa-gold focus:border-transparent text-santa-snow placeholder-gray-500"
-                  min="0"
-                  max="10"
-                  step="1"
-                />
-                <p className="text-xs text-gray-500 mt-1">
-                  How many previous years&apos; pairs to avoid repeating in the draw (0-10).
-                </p>
-              </div>
-
-              <button
-                type="submit"
-                className="w-full bg-santa-gold text-santa-dark py-2 rounded-xl font-semibold hover:bg-santa-gold-dark transition-all duration-300 hover:scale-105 transform"
-              >
-                Save Settings
-              </button>
-            </form>
-          </div>
-        </div>
-
-        {/* Seed last year's pairs - one-time backfill so this year's draw can
-            avoid repeating them, even before this app has ever run a draw. */}
-        <details className="mt-8 bg-[#151528] p-6 rounded-2xl border border-white/10 card-glow">
-          <summary className="text-2xl font-bold text-santa-snow cursor-pointer">
-            Seed last year&apos;s pairs
-          </summary>
-          <p className="text-sm text-gray-400 mt-2 mb-4">
-            Record who gave to whom last year by hand, so this year&apos;s draw knows to avoid repeating those
-            pairs. Only needed once, to backfill history from before this app was used.
-          </p>
-          <form onSubmit={handleSeedSubmit} className="space-y-4">
-            <div>
-              <label htmlFor="seedYear" className="block text-sm font-medium text-gray-300 mb-2">
-                Year
-              </label>
-              <input
-                type="number"
-                id="seedYear"
-                value={seedYear}
-                onChange={(e) => setSeedYear(e.target.value)}
-                className="w-full sm:w-40 px-4 py-2 bg-santa-dark border border-white/10 rounded-lg focus:ring-2 focus:ring-santa-gold focus:border-transparent text-santa-snow"
-              />
-            </div>
-
-            <div className="space-y-3">
-              {seedPairs.map((pair, index) => (
-                <div key={index} className="flex flex-col sm:flex-row gap-2 sm:items-center">
-                  <select
-                    value={pair.giverId}
-                    onChange={(e) => handleSeedRowChange(index, "giverId", e.target.value)}
-                    className="w-full px-3 py-2 bg-santa-dark border border-white/10 rounded-lg text-santa-snow"
-                  >
-                    <option value="">Giver...</option>
-                    {people.map((person) => (
-                      <option key={person.id} value={person.id}>
-                        {person.name}
-                      </option>
-                    ))}
-                  </select>
-                  <span className="text-gray-500 hidden sm:inline">&rarr;</span>
-                  <select
-                    value={pair.receiverId}
-                    onChange={(e) => handleSeedRowChange(index, "receiverId", e.target.value)}
-                    className="w-full px-3 py-2 bg-santa-dark border border-white/10 rounded-lg text-santa-snow"
-                  >
-                    <option value="">Receiver...</option>
-                    {people.map((person) => (
-                      <option key={person.id} value={person.id}>
-                        {person.name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              ))}
-            </div>
-
-            <button
-              type="button"
-              onClick={handleAddSeedRow}
-              className="text-santa-gold text-sm font-semibold hover:underline"
-            >
-              + Add row
-            </button>
-
-            <button
-              type="submit"
-              className="w-full bg-white/10 text-santa-snow py-2 rounded-xl font-semibold hover:bg-white/20 transition border border-white/10"
-            >
-              Save last year&apos;s pairs
-            </button>
-          </form>
-        </details>
-
-        {/* People List */}
-        <div className="mt-8 bg-[#151528] p-6 rounded-2xl border border-white/10 card-glow">
-          <h2 className="text-2xl font-bold text-santa-snow mb-4">People ({people.length})</h2>
-          {people.length === 0 ? (
-            <p className="text-gray-400">No people added yet. Add your first person above!</p>
-          ) : (
-            <>
-            {/* Mobile card layout */}
-            <div className="space-y-3 md:hidden">
-              {people.map((person) => (
-                <div key={person.id} className="bg-santa-dark/50 border border-white/5 rounded-lg p-4">
-                  <div className="flex justify-between items-start mb-2">
-                    <span className="font-semibold text-santa-snow">{person.name}</span>
-                    <button
-                      onClick={() => handleDeletePerson(person.id, person.name)}
-                      className="text-santa-red hover:text-santa-red-dark font-semibold text-sm min-h-[44px] min-w-[44px] flex items-center justify-center"
+              <div className="space-y-3">
+                {seedPairs.map((pair, index) => (
+                  <div key={index} className="flex flex-col sm:flex-row gap-2 sm:items-center">
+                    <select
+                      value={pair.giverId}
+                      onChange={(e) => handleSeedRowChange(index, "giverId", e.target.value)}
+                      className="w-full px-3 py-2 bg-santa-dark border border-white/10 rounded-lg text-santa-snow"
                     >
-                      Delete
-                    </button>
+                      <option value="">Giver...</option>
+                      {people.map((person) => (
+                        <option key={person.id} value={person.id}>
+                          {person.name}
+                        </option>
+                      ))}
+                    </select>
+                    <span className="text-gray-500 hidden sm:inline">&rarr;</span>
+                    <select
+                      value={pair.receiverId}
+                      onChange={(e) => handleSeedRowChange(index, "receiverId", e.target.value)}
+                      className="w-full px-3 py-2 bg-santa-dark border border-white/10 rounded-lg text-santa-snow"
+                    >
+                      <option value="">Receiver...</option>
+                      {people.map((person) => (
+                        <option key={person.id} value={person.id}>
+                          {person.name}
+                        </option>
+                      ))}
+                    </select>
                   </div>
-                  {person.email && (
-                    <p className="text-gray-400 text-sm truncate mb-1">{person.email}</p>
-                  )}
-                  <div className="flex flex-wrap items-center gap-2 text-sm">
-                    <code className="bg-santa-dark border border-white/10 px-2 py-1 rounded font-mono text-santa-gold text-xs">
-                      /p/{person.personalLinkToken}
-                    </code>
-                    <span className="text-gray-400">{person._count.wishlistItems}/5 items</span>
-                    {person._count.wishlistItems > 0 ? (
-                      <span className="bg-santa-green/10 text-santa-green text-xs px-2 py-0.5 rounded-full font-semibold border border-santa-green/20">
-                        Saved
-                      </span>
-                    ) : (
-                      <span className="bg-white/5 text-gray-500 text-xs px-2 py-0.5 rounded-full border border-white/10">
-                        Not saved
-                      </span>
-                    )}
-                  </div>
-                </div>
-              ))}
-            </div>
+                ))}
+              </div>
 
-            {/* Desktop table layout */}
-            <div className="hidden md:block overflow-x-auto">
-              <table className="w-full">
-                <thead>
-                  <tr className="border-b border-white/10">
-                    <th className="text-left py-3 px-4 text-santa-gold text-sm">Name</th>
-                    <th className="text-left py-3 px-4 text-santa-gold text-sm">Email</th>
-                    <th className="text-left py-3 px-4 text-santa-gold text-sm">Personal Link</th>
-                    <th className="text-left py-3 px-4 text-santa-gold text-sm">Wishlist</th>
-                    <th className="text-left py-3 px-4 text-santa-gold text-sm">Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {people.map((person) => (
-                    <tr key={person.id} className="border-b border-white/5 hover:bg-white/5">
-                      <td className="py-3 px-4 text-santa-snow">{person.name}</td>
-                      <td className="py-3 px-4">
-                        {person.email ? (
-                          <div className="flex items-center gap-2">
-                            <span className="text-gray-300 text-sm">{person.email}</span>
-                            <span className="bg-santa-gold/10 text-santa-gold text-xs px-2 py-1 rounded-full font-semibold border border-santa-gold/20">
-                              Email link
-                            </span>
-                          </div>
-                        ) : (
-                          <span className="text-gray-500 text-sm italic">No email</span>
-                        )}
-                      </td>
-                      <td className="py-3 px-4">
-                        <code className="bg-santa-dark border border-white/10 px-2 py-1 rounded font-mono text-santa-gold text-sm">
-                          /p/{person.personalLinkToken}
-                        </code>
-                      </td>
-                      <td className="py-3 px-4">
-                        <div className="flex items-center gap-2">
-                          <span className="text-santa-snow">{person._count.wishlistItems}/5</span>
-                          {person._count.wishlistItems > 0 ? (
-                            <span className="bg-santa-green/10 text-santa-green text-xs px-2 py-1 rounded-full font-semibold border border-santa-green/20">
-                              Saved
-                            </span>
-                          ) : (
-                            <span className="bg-white/5 text-gray-500 text-xs px-2 py-1 rounded-full border border-white/10">
-                              Not saved
-                            </span>
-                          )}
-                        </div>
-                      </td>
-                      <td className="py-3 px-4">
-                        <button
-                          onClick={() => handleDeletePerson(person.id, person.name)}
-                          className="text-santa-red hover:text-santa-red-dark font-semibold text-sm"
-                        >
-                          Delete
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-            </>
-          )}
-        </div>
+              <button
+                type="button"
+                onClick={handleAddSeedRow}
+                className="text-santa-gold text-sm font-semibold hover:underline"
+              >
+                + Add row
+              </button>
 
-        {/* Assignments List */}
-        {assignments.length > 0 && (
+              <button
+                type="submit"
+                className="w-full bg-white/10 text-santa-snow py-2 rounded-xl font-semibold hover:bg-white/20 transition border border-white/10"
+              >
+                Save last year&apos;s pairs
+              </button>
+            </form>
+          </details>
+
+          {/* People List */}
           <div className="mt-8 bg-[#151528] p-6 rounded-2xl border border-white/10 card-glow">
-            <h2 className="text-2xl font-bold text-santa-snow mb-4">
-              Assignments ({assignments.length})
-            </h2>
-            {/* Mobile card layout */}
-            <div className="space-y-2 md:hidden">
-              {assignments.map((assignment) => (
-                <div key={assignment.id} className="bg-santa-dark/50 border border-white/5 rounded-lg p-3 flex justify-between items-center">
-                  <div className="text-sm">
-                    <span className="text-santa-snow">{assignment.giver.name}</span>
-                    <span className="text-gray-500 mx-2">&rarr;</span>
-                    <span className="text-santa-snow">{assignment.receiver.name}</span>
+            <h2 className="text-2xl font-bold text-santa-snow mb-4">People ({people.length})</h2>
+            {people.length === 0 ? (
+              <p className="text-gray-400">No people added yet. Add your first person above!</p>
+            ) : (
+              <>
+              {/* Mobile card layout */}
+              <div className="space-y-3 md:hidden">
+                {people.map((person) => (
+                  <div key={person.id} className="bg-santa-dark/50 border border-white/5 rounded-lg p-4">
+                    <div className="flex justify-between items-start mb-2">
+                      <span className="font-semibold text-santa-snow">{person.name}</span>
+                      <button
+                        onClick={() => handleDeletePerson(person.id, person.name)}
+                        className="text-santa-red hover:text-santa-red-dark font-semibold text-sm min-h-[44px] min-w-[44px] flex items-center justify-center"
+                      >
+                        Delete
+                      </button>
+                    </div>
+                    {person.email && (
+                      <p className="text-gray-400 text-sm truncate mb-1">{person.email}</p>
+                    )}
+                    <div className="flex flex-wrap items-center gap-2 text-sm">
+                      <code className="bg-santa-dark border border-white/10 px-2 py-1 rounded font-mono text-santa-gold text-xs">
+                        /p/{person.personalLinkToken}
+                      </code>
+                      <span className="text-gray-400">{person._count.wishlistItems}/5 items</span>
+                      {person._count.wishlistItems > 0 ? (
+                        <span className="bg-santa-green/10 text-santa-green text-xs px-2 py-0.5 rounded-full font-semibold border border-santa-green/20">
+                          Saved
+                        </span>
+                      ) : (
+                        <span className="bg-white/5 text-gray-500 text-xs px-2 py-0.5 rounded-full border border-white/10">
+                          Not saved
+                        </span>
+                      )}
+                    </div>
                   </div>
-                  <span className="text-gray-400 text-xs">{assignment.receiver.wishlistItems.length} items</span>
-                </div>
-              ))}
-            </div>
+                ))}
+              </div>
 
-            {/* Desktop table layout */}
-            <div className="hidden md:block overflow-x-auto">
-              <table className="w-full">
-                <thead>
-                  <tr className="border-b border-white/10">
-                    <th className="text-left py-3 px-4 text-santa-gold text-sm">Giver</th>
-                    <th className="text-left py-3 px-4 text-santa-gold text-sm">Receiver</th>
-                    <th className="text-left py-3 px-4 text-santa-gold text-sm">Wishlist Status</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {assignments.map((assignment) => (
-                    <tr key={assignment.id} className="border-b border-white/5 hover:bg-white/5">
-                      <td className="py-3 px-4 text-santa-snow">{assignment.giver.name}</td>
-                      <td className="py-3 px-4 text-santa-snow">{assignment.receiver.name}</td>
-                      <td className="py-3 px-4 text-gray-400">
-                        {assignment.receiver.wishlistItems.length} items
-                      </td>
+              {/* Desktop table layout */}
+              <div className="hidden md:block overflow-x-auto">
+                <table className="w-full">
+                  <thead>
+                    <tr className="border-b border-white/10">
+                      <th className="text-left py-3 px-4 text-santa-gold text-sm">Name</th>
+                      <th className="text-left py-3 px-4 text-santa-gold text-sm">Email</th>
+                      <th className="text-left py-3 px-4 text-santa-gold text-sm">Personal Link</th>
+                      <th className="text-left py-3 px-4 text-santa-gold text-sm">Wishlist</th>
+                      <th className="text-left py-3 px-4 text-santa-gold text-sm">Actions</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+                  </thead>
+                  <tbody>
+                    {people.map((person) => (
+                      <tr key={person.id} className="border-b border-white/5 hover:bg-white/5">
+                        <td className="py-3 px-4 text-santa-snow">{person.name}</td>
+                        <td className="py-3 px-4">
+                          {person.email ? (
+                            <div className="flex items-center gap-2">
+                              <span className="text-gray-300 text-sm">{person.email}</span>
+                              <span className="bg-santa-gold/10 text-santa-gold text-xs px-2 py-1 rounded-full font-semibold border border-santa-gold/20">
+                                Email link
+                              </span>
+                            </div>
+                          ) : (
+                            <span className="text-gray-500 text-sm italic">No email</span>
+                          )}
+                        </td>
+                        <td className="py-3 px-4">
+                          <code className="bg-santa-dark border border-white/10 px-2 py-1 rounded font-mono text-santa-gold text-sm">
+                            /p/{person.personalLinkToken}
+                          </code>
+                        </td>
+                        <td className="py-3 px-4">
+                          <div className="flex items-center gap-2">
+                            <span className="text-santa-snow">{person._count.wishlistItems}/5</span>
+                            {person._count.wishlistItems > 0 ? (
+                              <span className="bg-santa-green/10 text-santa-green text-xs px-2 py-1 rounded-full font-semibold border border-santa-green/20">
+                                Saved
+                              </span>
+                            ) : (
+                              <span className="bg-white/5 text-gray-500 text-xs px-2 py-1 rounded-full border border-white/10">
+                                Not saved
+                              </span>
+                            )}
+                          </div>
+                        </td>
+                        <td className="py-3 px-4">
+                          <button
+                            onClick={() => handleDeletePerson(person.id, person.name)}
+                            className="text-santa-red hover:text-santa-red-dark font-semibold text-sm"
+                          >
+                            Delete
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              </>
+            )}
           </div>
+
+          {/* Assignments List */}
+          {assignments.length > 0 && (
+            <div className="mt-8 bg-[#151528] p-6 rounded-2xl border border-white/10 card-glow">
+              <h2 className="text-2xl font-bold text-santa-snow mb-4">
+                Assignments ({assignments.length})
+              </h2>
+              {/* Mobile card layout */}
+              <div className="space-y-2 md:hidden">
+                {assignments.map((assignment) => (
+                  <div key={assignment.id} className="bg-santa-dark/50 border border-white/5 rounded-lg p-3 flex justify-between items-center">
+                    <div className="text-sm">
+                      <span className="text-santa-snow">{assignment.giver.name}</span>
+                      <span className="text-gray-500 mx-2">&rarr;</span>
+                      <span className="text-santa-snow">{assignment.receiver.name}</span>
+                    </div>
+                    <span className="text-gray-400 text-xs">{assignment.receiver.wishlistItems.length} items</span>
+                  </div>
+                ))}
+              </div>
+
+              {/* Desktop table layout */}
+              <div className="hidden md:block overflow-x-auto">
+                <table className="w-full">
+                  <thead>
+                    <tr className="border-b border-white/10">
+                      <th className="text-left py-3 px-4 text-santa-gold text-sm">Giver</th>
+                      <th className="text-left py-3 px-4 text-santa-gold text-sm">Receiver</th>
+                      <th className="text-left py-3 px-4 text-santa-gold text-sm">Wishlist Status</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {assignments.map((assignment) => (
+                      <tr key={assignment.id} className="border-b border-white/5 hover:bg-white/5">
+                        <td className="py-3 px-4 text-santa-snow">{assignment.giver.name}</td>
+                        <td className="py-3 px-4 text-santa-snow">{assignment.receiver.name}</td>
+                        <td className="py-3 px-4 text-gray-400">
+                          {assignment.receiver.wishlistItems.length} items
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+          </>
         )}
       </div>
     </div>

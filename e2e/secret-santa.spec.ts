@@ -333,6 +333,17 @@ test.describe("Admin Portal Login", () => {
       });
     });
 
+    // The dashboard also fetches every group the admin can administer
+    // (P4-B4) - an empty list is enough here since this test only checks
+    // where the login redirects to, not the dashboard content.
+    await page.route("**/api/groups", async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify([]),
+      });
+    });
+
     await page.goto("/admin");
     await page.getByLabel(/Admin Password/i).fill("correct-horse-battery");
     await page.getByRole("button", { name: /^Login$/i }).click();
@@ -486,7 +497,9 @@ test.describe("Full Flow (with mocked API)", () => {
     });
 
     // The dashboard independently verifies the session via /api/auth/session
-    // on mount, so that also needs to report an authenticated admin.
+    // on mount, so that also needs to report an authenticated admin. P4-B4:
+    // the super-admin owns every group, so the session no longer carries a
+    // single adminGroupId/adminGroupName/adminInviteCode.
     await page.route("**/api/auth/session", async (route) => {
       await route.fulfill({
         status: 200,
@@ -494,10 +507,22 @@ test.describe("Full Flow (with mocked API)", () => {
         body: JSON.stringify({
           authenticated: true,
           isAdmin: true,
-          adminGroupId: "flow-test-group",
-          adminGroupName: "Flow Test Family",
-          adminInviteCode: "FLW123",
+          adminEmail: "admin@example.com",
+          adminLoginMethod: "breakglass",
         }),
+      });
+    });
+
+    // The dashboard fetches every group the admin can administer (P4-B4) and
+    // defaults its picker to the first one - a single-group list is enough
+    // to drive the rest of this flow without needing to change the picker.
+    await page.route("**/api/groups", async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify([
+          { id: "flow-test-group", name: "Flow Test Family", year: 2026 },
+        ]),
       });
     });
 
@@ -511,6 +536,15 @@ test.describe("Full Flow (with mocked API)", () => {
     await expect(page).toHaveURL(/\/admin\/dashboard/);
     await expect(
       page.getByRole("heading", { name: /Admin Dashboard/i })
+    ).toBeVisible();
+
+    // The group picker rendered with the fetched group selected, and the
+    // dashboard proceeded past the empty state into the real admin UI.
+    await expect(
+      page.getByRole("combobox", { name: /Group/i })
+    ).toHaveValue("flow-test-group");
+    await expect(
+      page.getByRole("heading", { name: /Add Person/i })
     ).toBeVisible();
   });
 
