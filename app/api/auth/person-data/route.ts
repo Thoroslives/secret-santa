@@ -25,7 +25,8 @@ export async function GET() {
           include: {
             round: true,
             receiver: {
-              include: {
+              select: {
+                name: true,
                 wishlistItems: {
                   orderBy: { order: "asc" },
                 },

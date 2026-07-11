@@ -48,7 +48,7 @@ export async function GET(request: NextRequest) {
     const mine = await prisma.assignment.findFirst({
       where: { groupId, year, giverId: session.personId },
       include: {
-        receiver: { include: { wishlistItems: { orderBy: { order: "asc" } } } },
+        receiver: { select: { name: true, wishlistItems: { orderBy: { order: "asc" } } } },
         round: true,
       },
     });

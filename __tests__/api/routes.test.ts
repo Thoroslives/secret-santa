@@ -1053,7 +1053,7 @@ describe('GET /api/assignments', () => {
     mockPrismaDb.assignment.findFirst.mockResolvedValue({
       id: 'a-1',
       giverId: 'p-1',
-      receiver: { id: 'p-2', name: 'Bob', wishlistItems: [] },
+      receiver: { name: 'Bob', wishlistItems: [] },
       round: { status: 'sent' },
     });
     const res = await getAssignments(makeGetRequest('http://localhost:3000/api/assignments?groupId=group-1'));
@@ -1066,6 +1066,21 @@ describe('GET /api/assignments', () => {
       expect.objectContaining({ where: expect.objectContaining({ giverId: 'p-1', year: 2026 }) })
     );
     expect(mockPrismaDb.assignment.findMany).not.toHaveBeenCalled();
+
+    // SECURITY: the participant-branch receiver relation must be a scoped
+    // `select`, never a bare `include` - an unscoped include returns the
+    // receiver's full Person row, leaking personalLinkToken (a durable login
+    // credential) and email to whoever drew them.
+    const call = mockPrismaDb.assignment.findFirst.mock.calls[0][0];
+    expect(call.include.receiver).toEqual({
+      select: {
+        name: true,
+        wishlistItems: { orderBy: { order: 'asc' } },
+      },
+    });
+    expect(json.assignment.receiver).toEqual({ name: 'Bob', wishlistItems: [] });
+    expect(json.assignment.receiver).not.toHaveProperty('personalLinkToken');
+    expect(json.assignment.receiver).not.toHaveProperty('email');
   });
 
   it('participant always gets the active year, ignoring any client-supplied ?year=', async () => {
@@ -1882,6 +1897,22 @@ describe('GET /api/auth/person-data', () => {
     expect(getActiveYear).toHaveBeenCalledWith('group-1');
     const call = mockPrismaDb.person.findUnique.mock.calls[0][0];
     expect(call.include.giverFor.where).toEqual({ groupId: 'group-1', year: 2026 });
+
+    // SECURITY: the receiver relation must be a scoped `select`, never a bare
+    // `include` - an unscoped include returns the full Person row, leaking
+    // the receiver's personalLinkToken (a durable login credential) and
+    // email to the participant who drew them. The query shape is the strong
+    // assertion here since the mock otherwise returns whatever it's fed; the
+    // response-body checks below are a weaker complement.
+    expect(call.include.giverFor.include.receiver).toEqual({
+      select: {
+        name: true,
+        wishlistItems: { orderBy: { order: 'asc' } },
+      },
+    });
+    expect(json.assignment.receiver).toEqual({ name: 'Bob', wishlistItems: [] });
+    expect(json.assignment.receiver).not.toHaveProperty('personalLinkToken');
+    expect(json.assignment.receiver).not.toHaveProperty('email');
   });
 
   it("loads the santa's matchSuggestions about their receiver once sent, naming only the named suggesters", async () => {
