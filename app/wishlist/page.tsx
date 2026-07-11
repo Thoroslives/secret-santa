@@ -16,6 +16,27 @@ interface Assignment {
   };
 }
 
+interface RosterPerson {
+  id: string;
+  name: string;
+}
+
+interface MySuggestion {
+  id: string;
+  forPersonId: string;
+  name: string;
+  note?: string | null;
+  named: boolean;
+  forPerson: { name: string };
+}
+
+interface MatchSuggestion {
+  id: string;
+  name: string;
+  note?: string | null;
+  from: string;
+}
+
 // A note is rendered as a link when it looks like one; otherwise it's shown as plain text.
 const isLinkNote = (note: string) => /^https?:\/\//.test(note.trim());
 
@@ -33,6 +54,16 @@ export default function Wishlist() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [successMessage, setSuccessMessage] = useState("");
+  const [roster, setRoster] = useState<RosterPerson[]>([]);
+  const [mySuggestions, setMySuggestions] = useState<MySuggestion[]>([]);
+  const [matchSuggestions, setMatchSuggestions] = useState<MatchSuggestion[]>([]);
+  const [suggestionCap, setSuggestionCap] = useState(3);
+  const [suggestForPersonId, setSuggestForPersonId] = useState("");
+  const [suggestName, setSuggestName] = useState("");
+  const [suggestNote, setSuggestNote] = useState("");
+  const [suggestNamed, setSuggestNamed] = useState(true);
+  const [suggestionSaving, setSuggestionSaving] = useState(false);
+  const [suggestionError, setSuggestionError] = useState("");
   const router = useRouter();
 
   useEffect(() => {
@@ -60,10 +91,13 @@ export default function Wishlist() {
   const loadPersonData = async (gId: string) => {
     try {
       // Session is already established (via /p/<token> or a prior email-link
-      // login); just pull this person's data and the group's budget in parallel.
-      const [personRes, groupRes] = await Promise.all([
+      // login); pull this person's data, the group's budget/suggestion cap,
+      // the participant roster, and this person's own suggestions in parallel.
+      const [personRes, groupRes, rosterRes, suggestionsRes] = await Promise.all([
         fetch(`/api/auth/person-data`),
         fetch(`/api/groups/${gId}`),
+        fetch(`/api/roster`),
+        fetch(`/api/suggestions?mine=1`),
       ]);
 
       if (personRes.ok) {
@@ -80,9 +114,11 @@ export default function Wishlist() {
         if (data.assignment) {
           setAssignment(data.assignment);
         }
+
+        setMatchSuggestions(data.matchSuggestions ?? []);
       }
 
-      // Load group budget information
+      // Load group budget information and the suggestion cap
       if (groupRes.ok) {
         const groupData = await groupRes.json();
         if (groupData.group && groupData.group.budgetAmount) {
@@ -91,12 +127,37 @@ export default function Wishlist() {
             currency: groupData.group.budgetCurrency || "USD"
           });
         }
+        if (groupData.group && typeof groupData.group.suggestionCap === "number") {
+          setSuggestionCap(groupData.group.suggestionCap);
+        }
+      }
+
+      if (rosterRes.ok) {
+        const rosterData = await rosterRes.json();
+        setRoster(rosterData.roster ?? []);
+      }
+
+      if (suggestionsRes.ok) {
+        const suggestionsData = await suggestionsRes.json();
+        setMySuggestions(suggestionsData.suggestions ?? []);
       }
 
       setLoading(false);
     } catch (err) {
       setError("Failed to load data");
       setLoading(false);
+    }
+  };
+
+  const loadMySuggestions = async () => {
+    try {
+      const res = await fetch("/api/suggestions?mine=1");
+      if (res.ok) {
+        const data = await res.json();
+        setMySuggestions(data.suggestions ?? []);
+      }
+    } catch (err) {
+      // Best-effort refresh; leave the existing list as-is on failure.
     }
   };
 
@@ -169,6 +230,80 @@ export default function Wishlist() {
     } catch (err) {
       setError("An error occurred while saving");
       setSaving(false);
+    }
+  };
+
+  const suggestionCountForSelected = suggestForPersonId
+    ? mySuggestions.filter((s) => s.forPersonId === suggestForPersonId).length
+    : 0;
+  const suggestionCapReached = suggestionCountForSelected >= suggestionCap;
+
+  const handleAddSuggestion = async () => {
+    setSuggestionError("");
+
+    if (!suggestForPersonId) {
+      setSuggestionError("Choose who this suggestion is for");
+      return;
+    }
+
+    if (!suggestName.trim()) {
+      setSuggestionError("Enter a gift idea");
+      return;
+    }
+
+    if (suggestionCapReached) {
+      setSuggestionError(`You can add at most ${suggestionCap} suggestions for one person.`);
+      return;
+    }
+
+    setSuggestionSaving(true);
+
+    try {
+      const res = await fetch("/api/suggestions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          forPersonId: suggestForPersonId,
+          name: suggestName.trim(),
+          note: suggestNote.trim() || undefined,
+          named: suggestNamed,
+        }),
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        setSuggestionError(data.error || "Failed to add suggestion");
+        setSuggestionSaving(false);
+        return;
+      }
+
+      setSuggestName("");
+      setSuggestNote("");
+      setSuggestionSaving(false);
+
+      await loadMySuggestions();
+    } catch (err) {
+      setSuggestionError("An error occurred while adding the suggestion");
+      setSuggestionSaving(false);
+    }
+  };
+
+  const handleRemoveSuggestion = async (id: string) => {
+    setSuggestionError("");
+
+    try {
+      const res = await fetch(`/api/suggestions?id=${id}`, { method: "DELETE" });
+
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        setSuggestionError(data.error || "Failed to remove suggestion");
+        return;
+      }
+
+      await loadMySuggestions();
+    } catch (err) {
+      setSuggestionError("An error occurred while removing the suggestion");
     }
   };
 
@@ -322,6 +457,25 @@ export default function Wishlist() {
                     </p>
                   )}
                 </div>
+
+                {matchSuggestions.length > 0 && (
+                  <div className="bg-santa-gold/10 border border-santa-gold/20 p-4 rounded-lg mt-4">
+                    <h3 className="font-semibold text-santa-snow mb-3">
+                      Gift ideas others suggested for {assignment.receiver.name}:
+                    </h3>
+                    <ul className="space-y-3">
+                      {matchSuggestions.map((s) => (
+                        <li key={s.id} className="border-b border-white/5 pb-2 last:border-0">
+                          <div className="font-medium text-santa-snow">{s.name}</div>
+                          {s.note && (
+                            <p className="text-sm text-gray-300 break-words">{s.note}</p>
+                          )}
+                          <p className="text-xs text-gray-400 mt-1">From: {s.from}</p>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
               </div>
             ) : (
               <div className="text-center py-8">
@@ -333,6 +487,121 @@ export default function Wishlist() {
                   Check back later or contact the admin!
                 </p>
               </div>
+            )}
+          </div>
+        </div>
+
+        {/* Suggest gifts for others */}
+        <div className="bg-[#151528] p-6 rounded-2xl border border-white/10 card-glow mt-8">
+          <h2 className="text-2xl font-bold text-santa-snow mb-4">Suggest Gifts for Others</h2>
+          <p className="text-sm text-gray-400 mb-4">
+            Leave gift ideas for someone else in the group. Their Secret Santa will see these suggestions once assignments are sent.
+          </p>
+
+          {suggestionError && (
+            <div className="bg-santa-red/10 border border-santa-red/30 text-santa-red px-4 py-3 rounded-lg mb-4">
+              {suggestionError}
+            </div>
+          )}
+
+          {roster.length === 0 ? (
+            <p className="text-gray-400 italic">No one else to suggest for yet.</p>
+          ) : (
+            <div className="border border-white/10 p-4 rounded-lg bg-santa-dark/50 space-y-3">
+              <div>
+                <label htmlFor="suggestForPerson" className="block text-sm font-medium text-gray-300 mb-2">
+                  Suggest a gift for
+                </label>
+                <select
+                  id="suggestForPerson"
+                  value={suggestForPersonId}
+                  onChange={(e) => setSuggestForPersonId(e.target.value)}
+                  className="w-full px-3 py-2 bg-santa-dark border border-white/10 rounded focus:ring-2 focus:ring-santa-gold focus:border-transparent text-santa-snow"
+                >
+                  <option value="">-- Select a person --</option>
+                  {roster.map((p) => (
+                    <option key={p.id} value={p.id}>{p.name}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label htmlFor="suggestName" className="block text-sm font-medium text-gray-300 mb-2">
+                  Gift idea
+                </label>
+                <input
+                  id="suggestName"
+                  type="text"
+                  value={suggestName}
+                  onChange={(e) => setSuggestName(e.target.value)}
+                  placeholder="Item name"
+                  className="w-full px-3 py-2 bg-santa-dark border border-white/10 rounded focus:ring-2 focus:ring-santa-gold focus:border-transparent text-santa-snow placeholder-gray-500"
+                />
+              </div>
+
+              <div>
+                <label htmlFor="suggestNote" className="block text-sm font-medium text-gray-300 mb-2">
+                  Note (optional)
+                </label>
+                <input
+                  id="suggestNote"
+                  type="text"
+                  value={suggestNote}
+                  onChange={(e) => setSuggestNote(e.target.value)}
+                  placeholder="A description or a link"
+                  className="w-full px-3 py-2 bg-santa-dark border border-white/10 rounded focus:ring-2 focus:ring-santa-gold focus:border-transparent text-santa-snow placeholder-gray-500"
+                />
+              </div>
+
+              <label htmlFor="suggestNamed" className="flex items-center gap-2 text-sm text-gray-300">
+                <input
+                  id="suggestNamed"
+                  type="checkbox"
+                  checked={suggestNamed}
+                  onChange={(e) => setSuggestNamed(e.target.checked)}
+                  className="w-4 h-4 accent-santa-gold"
+                />
+                Show my name (uncheck to suggest anonymously)
+              </label>
+
+              {suggestForPersonId && suggestionCapReached && (
+                <p className="text-sm text-santa-red">
+                  You&apos;ve reached the limit of {suggestionCap} suggestions for this person.
+                </p>
+              )}
+
+              <button
+                onClick={handleAddSuggestion}
+                disabled={suggestionSaving || !suggestForPersonId || !suggestName.trim() || suggestionCapReached}
+                className="w-full bg-santa-green text-white py-3 rounded-xl font-semibold hover:bg-santa-green-dark transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed hover:scale-105 transform"
+              >
+                {suggestionSaving ? "Adding..." : "Add Suggestion"}
+              </button>
+            </div>
+          )}
+
+          <div className="mt-6">
+            <h3 className="font-semibold text-santa-snow mb-3">Your suggestions</h3>
+            {mySuggestions.length === 0 ? (
+              <p className="text-gray-400 italic">You haven&apos;t suggested anything yet.</p>
+            ) : (
+              <ul className="space-y-3">
+                {mySuggestions.map((s) => (
+                  <li key={s.id} className="border border-white/10 p-4 rounded-lg bg-santa-dark/50 flex justify-between items-start gap-3">
+                    <div className="min-w-0">
+                      <div className="text-sm font-medium text-santa-gold">For {s.forPerson.name}</div>
+                      <div className="font-medium text-santa-snow break-words">{s.name}</div>
+                      {s.note && <p className="text-sm text-gray-300 break-words">{s.note}</p>}
+                    </div>
+                    <button
+                      onClick={() => handleRemoveSuggestion(s.id)}
+                      className="text-santa-red text-sm hover:text-santa-red-dark shrink-0"
+                    >
+                      Remove
+                    </button>
+                  </li>
+                ))}
+              </ul>
             )}
           </div>
         </div>
