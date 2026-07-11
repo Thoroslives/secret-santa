@@ -31,7 +31,6 @@ model Group {
   // Relations
   people       Person[]
   assignments  Assignment[]
-  adminConfig  AdminConfig?
   rounds       Round[]
   blocks       Block[]
 }
@@ -92,16 +91,6 @@ model Assignment {
   @@index([giverId])
   @@index([receiverId])
   @@index([roundId])
-}
-
-model AdminConfig {
-  id             String   @id @default(cuid())
-  groupId        String   @unique  // Each group has its own admin
-  hashedPassword String
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
-
-  group Group @relation(fields: [groupId], references: [id], onDelete: Cascade)
 }
 
 model Round {

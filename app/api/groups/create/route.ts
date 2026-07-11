@@ -2,7 +2,6 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { generateGroupInviteCode } from "@/lib/utils";
 import { validatePassword } from "@/lib/password";
-import bcrypt from "bcryptjs";
 
 export async function POST(request: NextRequest) {
   try {
@@ -30,23 +29,14 @@ export async function POST(request: NextRequest) {
       exists = await prisma.group.findUnique({ where: { inviteCode } });
     }
 
-    // Hash admin password
-    const hashedPassword = await bcrypt.hash(adminPassword, 12);
-
-    // Create group with admin config
+    // Create group
+    // P4-A3: adminPassword is still validated above for API-contract compatibility,
+    // but no longer persisted - AdminConfig is gone, single super-admin auth lands next task.
     const group = await prisma.group.create({
       data: {
         name: groupName.trim(),
         inviteCode,
         year: year || new Date().getFullYear(),
-        adminConfig: {
-          create: {
-            hashedPassword,
-          },
-        },
-      },
-      include: {
-        adminConfig: true,
       },
     });
 
