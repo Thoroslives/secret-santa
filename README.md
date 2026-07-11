@@ -139,6 +139,27 @@ The application uses a derangement algorithm to ensure:
 - `npx prisma studio` - Open database GUI
 - `npx prisma migrate reset` - Reset database (careful!)
 
+## Admin Authentication
+
+There is a single super-admin account with access to every group - not one
+admin per group. Sign in at `/admin` using either method:
+
+- **OIDC** - sign in through an external identity provider (e.g. Authentik).
+  Set `OIDC_ISSUER`, `OIDC_CLIENT_ID`, `OIDC_CLIENT_SECRET`, and
+  `OIDC_REDIRECT_URI`, then add the admin's email address to the
+  comma-separated `ADMIN_OIDC_ALLOWED_EMAILS` allowlist (the email returned
+  by the provider must come back verified). Leave the `OIDC_*` variables
+  unset to disable OIDC entirely and run break-glass-only.
+- **Break-glass password** - set `ADMIN_BREAKGLASS_PASSWORD` and sign in
+  with that password directly, no external provider required.
+
+**Set at least one of these (typically the break-glass password) or you
+cannot sign in as admin at all.**
+
+Group creation is admin-only; there is no public sign-up flow. See
+`.env.example` for the full list of admin-auth variables with placeholder
+values.
+
 ## Deployment
 
 ### Environment Variables
@@ -149,6 +170,27 @@ Make sure to set these in your production environment:
 DATABASE_URL=your-production-database-url
 ADMIN_PASSWORD=your-secure-admin-password
 ```
+
+### Deploy Notes (Docker)
+
+The Docker entrypoint runs `prisma migrate deploy` on every container
+start, and takes a timestamped `/data/santa.db.bak-*` snapshot of the
+SQLite database immediately before migrating (skipped on first boot, when
+no database file exists yet).
+
+This P4 build is a fresh/disposable deploy: start from an empty `/data`
+volume and set `ADMIN_BREAKGLASS_PASSWORD` before the first boot, or you
+will not be able to sign in as admin.
+
+If you ever deploy over an existing, non-wiped database instead: migrations
+apply in order, and a failed migration halts startup - restore the
+pre-migrate `.bak-*` snapshot, or resolve the migration state manually with
+`prisma migrate resolve`.
+
+The Authentik OIDC application/provider for this app (issuer slug e.g.
+`santa`) is created separately, outside this repo, at real-deploy time.
+Until it exists, leave the `OIDC_*` variables unset and run
+break-glass-only.
 
 ### Build and Deploy
 
