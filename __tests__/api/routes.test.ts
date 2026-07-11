@@ -173,6 +173,7 @@ import { POST as generateRound } from '@/app/api/rounds/generate/route';
 import { POST as sendRound } from '@/app/api/rounds/send/route';
 import { POST as rolloverRound } from '@/app/api/rounds/rollover/route';
 import { POST as seedRound } from '@/app/api/rounds/seed/route';
+import { GET as getRoster } from '@/app/api/roster/route';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -1800,5 +1801,58 @@ describe('PATCH /api/people/[id] rotateLink', () => {
       { params: { id: 'person-1' } } as any
     );
     expect(res.status).toBe(400);
+  });
+});
+
+// ===========================================================================
+// GET /api/roster - participant-safe roster (id+name only, never tokens/email)
+// Lets a logged-in participant pick who to suggest a gift for. Roster GET is
+// participant-gated (unlike /api/people, which is admin-only because it
+// includes each person's personalLinkToken - a bearer login credential).
+// ===========================================================================
+describe('GET /api/roster', () => {
+  beforeEach(() => {
+    mockSession.isLoggedIn = true;
+    mockSession.personId = 'p-1';
+    mockSession.groupId = 'group-1';
+  });
+
+  it('returns 401 when not logged in', async () => {
+    delete mockSession.isLoggedIn;
+    const res = await getRoster();
+    expect(res.status).toBe(401);
+  });
+
+  it("returns {id,name} for the session group's active people, excluding the caller", async () => {
+    const roster = [
+      { id: 'p-2', name: 'Bob' },
+      { id: 'p-3', name: 'Carol' },
+    ];
+    mockPrismaDb.person.findMany.mockResolvedValue(roster);
+
+    const res = await getRoster();
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.roster).toEqual(roster);
+
+    expect(mockPrismaDb.person.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { groupId: 'group-1', active: true, id: { not: 'p-1' } },
+      })
+    );
+  });
+
+  it('never leaks personalLinkToken or email - prisma select is id+name only', async () => {
+    const roster = [{ id: 'p-2', name: 'Bob' }];
+    mockPrismaDb.person.findMany.mockResolvedValue(roster);
+
+    const res = await getRoster();
+    const bodyText = JSON.stringify(await res.json());
+    expect(bodyText).not.toContain('personalLinkToken');
+    expect(bodyText).not.toContain('email');
+
+    expect(mockPrismaDb.person.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ select: { id: true, name: true } })
+    );
   });
 });

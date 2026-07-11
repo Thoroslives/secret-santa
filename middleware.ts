@@ -16,6 +16,7 @@ const sessionOptions = {
 const participantApiRoutes = [
   "/api/auth/person-data",
   "/api/wishlist",
+  "/api/roster",
 ];
 
 // Routes that require admin authentication
