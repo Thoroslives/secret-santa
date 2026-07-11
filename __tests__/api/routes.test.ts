@@ -409,6 +409,95 @@ describe('PATCH /api/groups/[id]', () => {
     const json = await res.json();
     expect(json.group).toEqual(updatedGroup);
   });
+
+  it('accepts and persists suggestionCap and previousYearMemory when both are provided', async () => {
+    const updatedGroup = {
+      id: 'group-1',
+      name: 'Test',
+      suggestionCap: 0,
+      previousYearMemory: 10,
+    };
+    mockPrismaDb.group.update.mockResolvedValue(updatedGroup);
+
+    const req = makePatchRequest('http://localhost:3000/api/groups/group-1', {
+      suggestionCap: 0,
+      previousYearMemory: 10,
+    });
+    const res = await patchGroup(req, { params: { id: 'group-1' } } as any);
+
+    expect(res.status).toBe(200);
+    expect(mockPrismaDb.group.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: 'group-1' },
+        data: expect.objectContaining({
+          suggestionCap: 0,
+          previousYearMemory: 10,
+        }),
+      }),
+    );
+  });
+
+  it('returns 400 for a suggestionCap above the allowed range', async () => {
+    const req = makePatchRequest('http://localhost:3000/api/groups/group-1', {
+      suggestionCap: 11,
+    });
+    const res = await patchGroup(req, { params: { id: 'group-1' } } as any);
+    expect(res.status).toBe(400);
+    expect(mockPrismaDb.group.update).not.toHaveBeenCalled();
+  });
+
+  it('returns 400 for a non-integer suggestionCap', async () => {
+    const req = makePatchRequest('http://localhost:3000/api/groups/group-1', {
+      suggestionCap: 2.5,
+    });
+    const res = await patchGroup(req, { params: { id: 'group-1' } } as any);
+    expect(res.status).toBe(400);
+    expect(mockPrismaDb.group.update).not.toHaveBeenCalled();
+  });
+
+  it('returns 400 for an out-of-range previousYearMemory', async () => {
+    const req = makePatchRequest('http://localhost:3000/api/groups/group-1', {
+      previousYearMemory: -1,
+    });
+    const res = await patchGroup(req, { params: { id: 'group-1' } } as any);
+    expect(res.status).toBe(400);
+    expect(mockPrismaDb.group.update).not.toHaveBeenCalled();
+  });
+
+  it('returns 400 for a non-integer previousYearMemory', async () => {
+    const req = makePatchRequest('http://localhost:3000/api/groups/group-1', {
+      previousYearMemory: 1.5,
+    });
+    const res = await patchGroup(req, { params: { id: 'group-1' } } as any);
+    expect(res.status).toBe(400);
+    expect(mockPrismaDb.group.update).not.toHaveBeenCalled();
+  });
+
+  it('omits suggestionCap and previousYearMemory from the update data when not provided (budget-only PATCH unaffected)', async () => {
+    const updatedGroup = {
+      id: 'group-1',
+      name: 'Test',
+      budgetAmount: 50,
+      budgetCurrency: 'EUR',
+    };
+    mockPrismaDb.group.update.mockResolvedValue(updatedGroup);
+
+    const req = makePatchRequest('http://localhost:3000/api/groups/group-1', {
+      budgetAmount: 50,
+      budgetCurrency: 'EUR',
+    });
+    const res = await patchGroup(req, { params: { id: 'group-1' } } as any);
+
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.group).toEqual(updatedGroup);
+
+    const updateCall = mockPrismaDb.group.update.mock.calls[0][0];
+    expect(updateCall.data).not.toHaveProperty('suggestionCap');
+    expect(updateCall.data).not.toHaveProperty('previousYearMemory');
+    expect(updateCall.data.budgetAmount).toBe(50);
+    expect(updateCall.data.budgetCurrency).toBe('EUR');
+  });
 });
 
 // ===========================================================================

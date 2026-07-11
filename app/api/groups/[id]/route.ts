@@ -54,7 +54,7 @@ export async function PATCH(
       return NextResponse.json({ error: "Admin authentication required" }, { status: 403 });
     }
 
-    const { budgetAmount, budgetCurrency } = await request.json();
+    const { budgetAmount, budgetCurrency, suggestionCap, previousYearMemory } = await request.json();
 
     // Validate currency if provided
     const validCurrencies = [
@@ -77,13 +77,50 @@ export async function PATCH(
       );
     }
 
+    // suggestionCap / previousYearMemory: both are P3 knobs, each an integer
+    // 0..10 inclusive. Validated only when present in the body; omitted means
+    // "leave as-is" (guarded below, not written to the update data at all).
+    const isValidCapValue = (value: unknown): value is number =>
+      typeof value === "number" && Number.isInteger(value) && value >= 0 && value <= 10;
+
+    if (suggestionCap !== undefined && !isValidCapValue(suggestionCap)) {
+      return NextResponse.json(
+        { error: "suggestionCap must be an integer between 0 and 10" },
+        { status: 400 }
+      );
+    }
+
+    if (previousYearMemory !== undefined && !isValidCapValue(previousYearMemory)) {
+      return NextResponse.json(
+        { error: "previousYearMemory must be an integer between 0 and 10" },
+        { status: 400 }
+      );
+    }
+
+    const data: {
+      budgetAmount: number | null;
+      budgetCurrency: string;
+      updatedAt: Date;
+      suggestionCap?: number;
+      previousYearMemory?: number;
+    } = {
+      budgetAmount: budgetAmount,
+      budgetCurrency: budgetCurrency || "USD",
+      updatedAt: new Date(),
+    };
+
+    // Guard-and-merge: only include a key when the caller actually sent it,
+    // so an omitted field is never overwritten (no `undefined` writes).
+    if (suggestionCap !== undefined) {
+      data.suggestionCap = suggestionCap;
+    }
+    if (previousYearMemory !== undefined) {
+      data.previousYearMemory = previousYearMemory;
+    }
+
     const group = await prisma.group.update({
       where: { id: groupId },
-      data: {
-        budgetAmount: budgetAmount,
-        budgetCurrency: budgetCurrency || "USD",
-        updatedAt: new Date(),
-      },
+      data,
     });
 
     return NextResponse.json({ group });

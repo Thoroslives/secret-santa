@@ -36,6 +36,8 @@ export default function AdminDashboard() {
   const [budget, setBudget] = useState<GroupBudget>({ budgetAmount: undefined, budgetCurrency: "USD" });
   const [budgetAmount, setBudgetAmount] = useState("");
   const [budgetCurrency, setBudgetCurrency] = useState("USD");
+  const [suggestionCap, setSuggestionCap] = useState(3);
+  const [previousYearMemory, setPreviousYearMemory] = useState(1);
   const [seedYear, setSeedYear] = useState("");
   const [seedPairs, setSeedPairs] = useState<{ giverId: string; receiverId: string }[]>([
     { giverId: "", receiverId: "" },
@@ -93,6 +95,12 @@ export default function AdminDashboard() {
         setBudgetAmount(groupData.group.budgetAmount?.toString() || "");
         setBudgetCurrency(groupData.group.budgetCurrency || "USD");
         setActiveYear(groupData.group.year);
+        if (typeof groupData.group.suggestionCap === "number") {
+          setSuggestionCap(groupData.group.suggestionCap);
+        }
+        if (typeof groupData.group.previousYearMemory === "number") {
+          setPreviousYearMemory(groupData.group.previousYearMemory);
+        }
       }
 
       setLoading(false);
@@ -366,6 +374,44 @@ export default function AdminDashboard() {
     }
   };
 
+  const handleUpdateSettings = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError("");
+    setSuccessMessage("");
+
+    if (!Number.isInteger(suggestionCap) || suggestionCap < 0 || suggestionCap > 10) {
+      setError("Suggestion cap must be a whole number between 0 and 10");
+      return;
+    }
+
+    if (!Number.isInteger(previousYearMemory) || previousYearMemory < 0 || previousYearMemory > 10) {
+      setError("Previous year memory must be a whole number between 0 and 10");
+      return;
+    }
+
+    try {
+      const res = await fetch(`/api/groups/${groupInfo.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          suggestionCap,
+          previousYearMemory,
+        }),
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        setError(data.error || "Failed to update settings");
+        return;
+      }
+
+      setSuccessMessage("Settings updated successfully!");
+    } catch (err) {
+      setError("An error occurred");
+    }
+  };
+
   const handleLogout = async () => {
     await fetch("/api/auth/logout", { method: "POST" });
     router.push("/");
@@ -583,6 +629,57 @@ export default function AdminDashboard() {
                 </div>
               )}
             </div>
+          </div>
+
+          {/* Group Settings */}
+          <div className="bg-[#151528] p-6 rounded-2xl border border-white/10 card-glow">
+            <h2 className="text-2xl font-bold text-santa-snow mb-4">Settings</h2>
+            <form onSubmit={handleUpdateSettings} className="space-y-4">
+              <div>
+                <label htmlFor="suggestionCap" className="block text-sm font-medium text-gray-300 mb-2">
+                  Suggestion Cap
+                </label>
+                <input
+                  type="number"
+                  id="suggestionCap"
+                  value={suggestionCap}
+                  onChange={(e) => setSuggestionCap(Number(e.target.value))}
+                  className="w-full px-4 py-2 bg-santa-dark border border-white/10 rounded-lg focus:ring-2 focus:ring-santa-gold focus:border-transparent text-santa-snow placeholder-gray-500"
+                  min="0"
+                  max="10"
+                  step="1"
+                />
+                <p className="text-xs text-gray-500 mt-1">
+                  Max gift suggestions each person can add for their match (0-10).
+                </p>
+              </div>
+
+              <div>
+                <label htmlFor="previousYearMemory" className="block text-sm font-medium text-gray-300 mb-2">
+                  Previous Year Memory
+                </label>
+                <input
+                  type="number"
+                  id="previousYearMemory"
+                  value={previousYearMemory}
+                  onChange={(e) => setPreviousYearMemory(Number(e.target.value))}
+                  className="w-full px-4 py-2 bg-santa-dark border border-white/10 rounded-lg focus:ring-2 focus:ring-santa-gold focus:border-transparent text-santa-snow placeholder-gray-500"
+                  min="0"
+                  max="10"
+                  step="1"
+                />
+                <p className="text-xs text-gray-500 mt-1">
+                  How many previous years&apos; pairs to avoid repeating in the draw (0-10).
+                </p>
+              </div>
+
+              <button
+                type="submit"
+                className="w-full bg-santa-gold text-santa-dark py-2 rounded-xl font-semibold hover:bg-santa-gold-dark transition-all duration-300 hover:scale-105 transform"
+              >
+                Save Settings
+              </button>
+            </form>
           </div>
         </div>
 
