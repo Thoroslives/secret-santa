@@ -25,6 +25,8 @@ model Group {
   budgetCurrency String   @default("USD") // Currency code
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
+  suggestionCap      Int @default(3)
+  previousYearMemory Int @default(1)
 
   // Relations
   people       Person[]
@@ -43,14 +45,16 @@ model Person {
   active            Boolean  @default(true)
   createdAt         DateTime @default(now())
 
-  group         Group            @relation(fields: [groupId], references: [id], onDelete: Cascade)
-  wishlistItems WishlistItem[]
-  giverFor      Assignment[]     @relation("Giver")
-  receiverFor   Assignment[]     @relation("Receiver")
-  blocksA       Block[]          @relation("BlockA")
-  blocksB       Block[]          @relation("BlockB")
-  pinsGiven     ForcedPin[]      @relation("PinGiver")
-  pinsReceived  ForcedPin[]      @relation("PinReceiver")
+  group          Group            @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  wishlistItems  WishlistItem[]
+  giverFor       Assignment[]     @relation("Giver")
+  receiverFor    Assignment[]     @relation("Receiver")
+  blocksA        Block[]          @relation("BlockA")
+  blocksB        Block[]          @relation("BlockB")
+  pinsGiven      ForcedPin[]      @relation("PinGiver")
+  pinsReceived   ForcedPin[]      @relation("PinReceiver")
+  suggestionsFor Suggestion[]     @relation("SuggestionFor")
+  suggestionsBy  Suggestion[]     @relation("SuggestionBy")
 
   @@unique([groupId, email])      // Email must be unique within a group (if provided)
   @@index([groupId])
@@ -111,6 +115,7 @@ model Round {
   group Group @relation(fields: [groupId], references: [id], onDelete: Cascade)
   assignments Assignment[]
   forcedPins ForcedPin[]
+  suggestions Suggestion[]
   @@unique([groupId, year])
   @@index([groupId])
 }
@@ -136,4 +141,20 @@ model ForcedPin {
   receiver Person @relation("PinReceiver", fields: [receiverId], references: [id], onDelete: Cascade)
   @@unique([roundId, giverId])
   @@index([roundId])
+}
+model Suggestion {
+  id          String   @id @default(cuid())
+  roundId     String
+  forPersonId String   // the person the suggestion is ABOUT (never sees it)
+  byPersonId  String   // the suggester (sees only their own)
+  name        String
+  note        String?
+  named       Boolean  @default(false) // suggester's per-suggestion named/anon choice
+  createdAt   DateTime @default(now())
+  round     Round  @relation(fields: [roundId], references: [id], onDelete: Cascade)
+  forPerson Person @relation("SuggestionFor", fields: [forPersonId], references: [id], onDelete: Cascade)
+  byPerson  Person @relation("SuggestionBy",  fields: [byPersonId],  references: [id], onDelete: Cascade)
+  @@index([roundId])
+  @@index([forPersonId])
+  @@index([byPersonId, forPersonId, roundId]) // the cap-count query
 }
