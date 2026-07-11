@@ -641,9 +641,6 @@ describe('POST /api/people', () => {
       name: 'Alice',
       email: 'alice@example.com',
       personalLinkToken: 'tok_test',
-      // Bridge column until Task 12 drops it - still written, but now derived from the
-      // same generator as personalLinkToken, not the retired generateLoginCode.
-      loginCode: 'tok_test',
       groupId: 'group-1',
     };
     mockPrismaDb.person.create.mockResolvedValue(personData);
@@ -660,7 +657,7 @@ describe('POST /api/people', () => {
     expect(generatePersonalLinkToken).toHaveBeenCalled();
     expect(mockPrismaDb.person.create).toHaveBeenCalledWith(
       expect.objectContaining({
-        data: expect.objectContaining({ personalLinkToken: 'tok_test', loginCode: 'tok_test' }),
+        data: expect.objectContaining({ personalLinkToken: 'tok_test' }),
       }),
     );
   });
@@ -839,8 +836,6 @@ describe('POST /api/wishlist', () => {
       personId: 'person-1',
       title: 'Cool Gift',
       note: 'http://example.com/gift',
-      // Legacy NOT NULL column, written as a placeholder until Task 12 drops it.
-      link: '',
       order: 0,
     };
     mockPrismaDb.wishlistItem.create.mockResolvedValue(createdItem);
@@ -862,7 +857,6 @@ describe('POST /api/wishlist', () => {
         personId: 'person-1',
         title: 'Cool Gift',
         note: 'http://example.com/gift',
-        link: '',
         order: 0,
       },
     });

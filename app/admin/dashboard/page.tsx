@@ -7,14 +7,14 @@ interface Person {
   id: string;
   name: string;
   email?: string;
-  loginCode: string;
+  personalLinkToken: string;
   _count: { wishlistItems: number };
 }
 
 interface Assignment {
   id: string;
   giver: { name: string };
-  receiver: { name: string; wishlistItems: Array<{ title: string; link: string }> };
+  receiver: { name: string; wishlistItems: Array<{ title: string; note?: string | null }> };
 }
 
 interface GroupBudget {
@@ -119,7 +119,7 @@ export default function AdminDashboard() {
       }
 
       const emailMsg = data.person.email ? ` and email: ${data.person.email}` : "";
-      setSuccessMessage(`Added ${data.person.name} with code: ${data.person.loginCode}${emailMsg}`);
+      setSuccessMessage(`Added ${data.person.name}${emailMsg}`);
       setNewPersonName("");
       setNewPersonEmail("");
       loadData(groupInfo.id);
@@ -507,7 +507,7 @@ export default function AdminDashboard() {
                   )}
                   <div className="flex flex-wrap items-center gap-2 text-sm">
                     <code className="bg-santa-dark border border-white/10 px-2 py-1 rounded font-mono text-santa-gold text-xs">
-                      {person.loginCode}
+                      /p/{person.personalLinkToken}
                     </code>
                     <span className="text-gray-400">{person._count.wishlistItems}/5 items</span>
                     {person._count.wishlistItems > 0 ? (
@@ -531,7 +531,7 @@ export default function AdminDashboard() {
                   <tr className="border-b border-white/10">
                     <th className="text-left py-3 px-4 text-santa-gold text-sm">Name</th>
                     <th className="text-left py-3 px-4 text-santa-gold text-sm">Email</th>
-                    <th className="text-left py-3 px-4 text-santa-gold text-sm">Login Code</th>
+                    <th className="text-left py-3 px-4 text-santa-gold text-sm">Personal Link</th>
                     <th className="text-left py-3 px-4 text-santa-gold text-sm">Wishlist</th>
                     <th className="text-left py-3 px-4 text-santa-gold text-sm">Actions</th>
                   </tr>
@@ -554,7 +554,7 @@ export default function AdminDashboard() {
                       </td>
                       <td className="py-3 px-4">
                         <code className="bg-santa-dark border border-white/10 px-2 py-1 rounded font-mono text-santa-gold text-sm">
-                          {person.loginCode}
+                          /p/{person.personalLinkToken}
                         </code>
                       </td>
                       <td className="py-3 px-4">

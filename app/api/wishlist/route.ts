@@ -55,9 +55,6 @@ export async function POST(request: NextRequest) {
             personId,
             title: item.title.trim(),
             note: item.note?.trim() || null,
-            // `link` is still NOT NULL with no default at the DB level (dropped in Task 12's
-            // schema contract). We no longer read a user-supplied link, so write a placeholder.
-            link: "",
             order: index,
           },
         })

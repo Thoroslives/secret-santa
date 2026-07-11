@@ -38,9 +38,8 @@ model Person {
   id                String   @id @default(cuid())
   groupId           String   // Links this person to their group
   name              String
-  email             String?  // Optional email for magic link login
-  loginCode         String   // Unique within this person's context
-  personalLinkToken String?  @unique // Unguessable token for personal wishlist/assignment links
+  email             String?  // Optional email for self-service link resend
+  personalLinkToken String   @unique // Durable, unguessable per-person login link token
   active            Boolean  @default(true)
   createdAt         DateTime @default(now())
 
@@ -53,10 +52,8 @@ model Person {
   pinsGiven     ForcedPin[]      @relation("PinGiver")
   pinsReceived  ForcedPin[]      @relation("PinReceiver")
 
-  @@unique([groupId, loginCode])  // Login code must be unique within a group
   @@unique([groupId, email])      // Email must be unique within a group (if provided)
   @@index([groupId])
-  @@index([loginCode])
   @@index([email])
 }
 
@@ -65,7 +62,6 @@ model WishlistItem {
   personId  String
   person    Person   @relation(fields: [personId], references: [id], onDelete: Cascade)
   title     String
-  link      String
   note      String?
   order     Int
   createdAt DateTime @default(now())
@@ -78,14 +74,14 @@ model Assignment {
   groupId    String   // Assignments are isolated per group
   giverId    String
   receiverId String
-  year       Int
-  roundId    String?
+  year       Int      // denormalized filter, always == round.year (set together in generate)
+  roundId    String
   createdAt  DateTime @default(now())
 
   group    Group  @relation(fields: [groupId], references: [id], onDelete: Cascade)
   giver    Person @relation("Giver", fields: [giverId], references: [id], onDelete: Cascade)
   receiver Person @relation("Receiver", fields: [receiverId], references: [id], onDelete: Cascade)
-  round    Round? @relation(fields: [roundId], references: [id], onDelete: Cascade)
+  round    Round  @relation(fields: [roundId], references: [id], onDelete: Cascade)
 
   @@unique([giverId, year])
   @@index([groupId])
