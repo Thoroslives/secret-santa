@@ -50,6 +50,13 @@ const mockPrismaDb = {
     updateMany: jest.fn(),
     upsert: jest.fn(),
   },
+  suggestion: {
+    count: jest.fn(),
+    create: jest.fn(),
+    findMany: jest.fn(),
+    findUnique: jest.fn(),
+    delete: jest.fn(),
+  },
   $transaction: jest.fn(),
   $disconnect: jest.fn(),
 };
@@ -174,6 +181,7 @@ import { POST as sendRound } from '@/app/api/rounds/send/route';
 import { POST as rolloverRound } from '@/app/api/rounds/rollover/route';
 import { POST as seedRound } from '@/app/api/rounds/seed/route';
 import { GET as getRoster } from '@/app/api/roster/route';
+import { POST as createSuggestion, GET as getSuggestions, DELETE as deleteSuggestion } from '@/app/api/suggestions/route';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -1854,5 +1862,205 @@ describe('GET /api/roster', () => {
     expect(mockPrismaDb.person.findMany).toHaveBeenCalledWith(
       expect.objectContaining({ select: { id: true, name: true } })
     );
+  });
+});
+
+// ===========================================================================
+// POST/GET/DELETE /api/suggestions
+// ===========================================================================
+describe('/api/suggestions', () => {
+  const url = 'http://localhost:3000/api/suggestions';
+
+  beforeEach(() => {
+    mockSession.isLoggedIn = true;
+    mockSession.personId = 'p-1';
+    mockSession.groupId = 'group-1';
+    (getActiveYear as jest.Mock).mockResolvedValue(2026);
+    (ensureRound as jest.Mock).mockResolvedValue({ id: 'round-1', groupId: 'group-1', year: 2026, status: 'draft' });
+    mockPrismaDb.group.findUnique.mockResolvedValue({ suggestionCap: 3 });
+  });
+
+  describe('POST /api/suggestions', () => {
+    it('returns 401 when not logged in', async () => {
+      delete mockSession.isLoggedIn;
+      const res = await createSuggestion(makePostRequest(url, { forPersonId: 'p-2', name: 'Socks' }));
+      expect(res.status).toBe(401);
+    });
+
+    it('returns 400 with the exact validateSuggestionInput message for a self-suggestion', async () => {
+      const res = await createSuggestion(makePostRequest(url, { forPersonId: 'p-1', name: 'Socks' }));
+      expect(res.status).toBe(400);
+      const json = await res.json();
+      expect(json.error).toBe("You can't add a suggestion for yourself.");
+      // Validation short-circuits before any DB membership lookup.
+      expect(mockPrismaDb.person.findFirst).not.toHaveBeenCalled();
+    });
+
+    it('returns 400 when name is missing', async () => {
+      const res = await createSuggestion(makePostRequest(url, { forPersonId: 'p-2', name: '' }));
+      expect(res.status).toBe(400);
+    });
+
+    it("returns 404 when forPerson is not an active member of the caller's group", async () => {
+      mockPrismaDb.person.findFirst.mockResolvedValue(null);
+      const res = await createSuggestion(makePostRequest(url, { forPersonId: 'p-2', name: 'Socks' }));
+      expect(res.status).toBe(404);
+      expect(mockPrismaDb.person.findFirst).toHaveBeenCalledWith({
+        where: { id: 'p-2', groupId: 'group-1', active: true },
+      });
+    });
+
+    it('creates a suggestion under the cap (201), trimmed, with byPerson from the session', async () => {
+      mockPrismaDb.person.findFirst.mockResolvedValue({ id: 'p-2', groupId: 'group-1', active: true });
+      mockPrismaDb.suggestion.count.mockResolvedValue(1);
+      mockPrismaDb.suggestion.create.mockResolvedValue({
+        id: 'sug-1',
+        roundId: 'round-1',
+        forPersonId: 'p-2',
+        byPersonId: 'p-1',
+        name: 'Socks',
+        note: null,
+        named: false,
+      });
+
+      const res = await createSuggestion(makePostRequest(url, { forPersonId: 'p-2', name: '  Socks  ' }));
+      expect(res.status).toBe(201);
+      const json = await res.json();
+      expect(json.suggestion).toEqual({
+        id: 'sug-1',
+        forPersonId: 'p-2',
+        name: 'Socks',
+        note: null,
+        named: false,
+      });
+
+      expect(mockPrismaDb.suggestion.count).toHaveBeenCalledWith({
+        where: { roundId: 'round-1', byPersonId: 'p-1', forPersonId: 'p-2' },
+      });
+      expect(mockPrismaDb.suggestion.create).toHaveBeenCalledWith({
+        data: {
+          roundId: 'round-1',
+          forPersonId: 'p-2',
+          byPersonId: 'p-1',
+          name: 'Socks',
+          note: null,
+          named: false,
+        },
+      });
+    });
+
+    it('rejects at the cap with the exact message and does not create', async () => {
+      mockPrismaDb.person.findFirst.mockResolvedValue({ id: 'p-2', groupId: 'group-1', active: true });
+      mockPrismaDb.suggestion.count.mockResolvedValue(3);
+
+      const res = await createSuggestion(makePostRequest(url, { forPersonId: 'p-2', name: 'Socks' }));
+      expect(res.status).toBe(400);
+      const json = await res.json();
+      expect(json.error).toBe('You can add at most 3 suggestions for one person.');
+      expect(mockPrismaDb.suggestion.create).not.toHaveBeenCalled();
+    });
+
+    it("ignores a client-supplied byPersonId - byPerson always comes from the session", async () => {
+      mockPrismaDb.person.findFirst.mockResolvedValue({ id: 'p-2', groupId: 'group-1', active: true });
+      mockPrismaDb.suggestion.count.mockResolvedValue(0);
+      mockPrismaDb.suggestion.create.mockResolvedValue({
+        id: 'sug-1',
+        roundId: 'round-1',
+        forPersonId: 'p-2',
+        byPersonId: 'p-1',
+        name: 'Socks',
+        note: null,
+        named: false,
+      });
+
+      // A body trying to plant a suggestion "from" someone else must not
+      // succeed in doing so - the cap check and the create must both use the
+      // session's own personId regardless of what the body claims.
+      await createSuggestion(
+        makePostRequest(url, { forPersonId: 'p-2', name: 'Socks', byPersonId: 'someone-else' })
+      );
+      expect(mockPrismaDb.suggestion.count).toHaveBeenCalledWith(
+        expect.objectContaining({ where: expect.objectContaining({ byPersonId: 'p-1' }) })
+      );
+      expect(mockPrismaDb.suggestion.create).toHaveBeenCalledWith(
+        expect.objectContaining({ data: expect.objectContaining({ byPersonId: 'p-1' }) })
+      );
+    });
+  });
+
+  describe('GET /api/suggestions?mine=1', () => {
+    it('returns 401 when not logged in', async () => {
+      delete mockSession.isLoggedIn;
+      const res = await getSuggestions(makeGetRequest(url + '?mine=1'));
+      expect(res.status).toBe(401);
+    });
+
+    it("returns only the caller's own suggestions for the active round", async () => {
+      const mine = [
+        {
+          id: 'sug-1',
+          forPersonId: 'p-2',
+          byPersonId: 'p-1',
+          name: 'Socks',
+          note: null,
+          named: false,
+          forPerson: { name: 'Bob' },
+        },
+      ];
+      mockPrismaDb.suggestion.findMany.mockResolvedValue(mine);
+
+      const res = await getSuggestions(makeGetRequest(url + '?mine=1'));
+      expect(res.status).toBe(200);
+      const json = await res.json();
+      expect(json.suggestions).toEqual(mine);
+
+      expect(mockPrismaDb.suggestion.findMany).toHaveBeenCalledWith({
+        where: { byPersonId: 'p-1', roundId: 'round-1' },
+        include: { forPerson: { select: { name: true } } },
+      });
+    });
+
+    it("never scopes by any id but the caller's own session personId", async () => {
+      mockPrismaDb.suggestion.findMany.mockResolvedValue([]);
+      await getSuggestions(makeGetRequest(url + '?mine=1'));
+      const where = mockPrismaDb.suggestion.findMany.mock.calls[0][0].where;
+      expect(where.byPersonId).toBe('p-1');
+      expect(where.byPersonId).not.toBe('p-2');
+      expect(where.forPersonId).toBeUndefined();
+    });
+  });
+
+  describe('DELETE /api/suggestions', () => {
+    it('returns 401 when not logged in', async () => {
+      delete mockSession.isLoggedIn;
+      const res = await deleteSuggestion(makeDeleteRequest(url + '?id=sug-1'));
+      expect(res.status).toBe(401);
+    });
+
+    it('returns 400 when id is missing', async () => {
+      const res = await deleteSuggestion(makeDeleteRequest(url));
+      expect(res.status).toBe(400);
+    });
+
+    it('returns 404 for a suggestion that does not exist', async () => {
+      mockPrismaDb.suggestion.findUnique.mockResolvedValue(null);
+      const res = await deleteSuggestion(makeDeleteRequest(url + '?id=nope'));
+      expect(res.status).toBe(404);
+    });
+
+    it("returns 403 deleting another person's suggestion and does not delete it", async () => {
+      mockPrismaDb.suggestion.findUnique.mockResolvedValue({ id: 'sug-1', byPersonId: 'someone-else' });
+      const res = await deleteSuggestion(makeDeleteRequest(url + '?id=sug-1'));
+      expect(res.status).toBe(403);
+      expect(mockPrismaDb.suggestion.delete).not.toHaveBeenCalled();
+    });
+
+    it('deletes own suggestion (200)', async () => {
+      mockPrismaDb.suggestion.findUnique.mockResolvedValue({ id: 'sug-1', byPersonId: 'p-1' });
+      mockPrismaDb.suggestion.delete.mockResolvedValue({ id: 'sug-1' });
+      const res = await deleteSuggestion(makeDeleteRequest(url + '?id=sug-1'));
+      expect(res.status).toBe(200);
+      expect(mockPrismaDb.suggestion.delete).toHaveBeenCalledWith({ where: { id: 'sug-1' } });
+    });
   });
 });
