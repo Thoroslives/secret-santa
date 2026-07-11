@@ -1749,6 +1749,7 @@ describe('GET /api/auth/person-data', () => {
     mockSession.personId = 'p-1';
     mockSession.groupId = 'group-1';
     (getActiveYear as jest.Mock).mockResolvedValue(2026);
+    mockPrismaDb.suggestion.findMany.mockResolvedValue([]);
   });
 
   it('returns 401 when not logged in', async () => {
@@ -1756,19 +1757,34 @@ describe('GET /api/auth/person-data', () => {
     expect((await personData()).status).toBe(401);
   });
 
-  it('hides the match until the round is sent (blind before send)', async () => {
+  it('hides the match until the round is sent (blind before send), and loads no suggestions', async () => {
     mockPrismaDb.person.findUnique.mockResolvedValue({
       wishlistItems: [],
-      giverFor: [{ id: 'a-1', round: { status: 'generated' }, receiver: { name: 'Bob', wishlistItems: [] } }],
+      giverFor: [{
+        id: 'a-1',
+        roundId: 'round-1',
+        receiverId: 'p-2',
+        round: { status: 'generated' },
+        receiver: { name: 'Bob', wishlistItems: [] },
+      }],
     });
     const json = await (await personData()).json();
     expect(json.assignment).toBeNull();
+    // Pre-send: assignment is null, so the suggestions query must never fire.
+    expect(json.matchSuggestions).toEqual([]);
+    expect(mockPrismaDb.suggestion.findMany).not.toHaveBeenCalled();
   });
 
   it('reveals the match once the round is sent, filtered to the active year', async () => {
     mockPrismaDb.person.findUnique.mockResolvedValue({
       wishlistItems: [],
-      giverFor: [{ id: 'a-1', round: { status: 'sent' }, receiver: { name: 'Bob', wishlistItems: [] } }],
+      giverFor: [{
+        id: 'a-1',
+        roundId: 'round-1',
+        receiverId: 'p-2',
+        round: { status: 'sent' },
+        receiver: { name: 'Bob', wishlistItems: [] },
+      }],
     });
     const json = await (await personData()).json();
     expect(json.assignment).not.toBeNull();
@@ -1777,6 +1793,62 @@ describe('GET /api/auth/person-data', () => {
     expect(getActiveYear).toHaveBeenCalledWith('group-1');
     const call = mockPrismaDb.person.findUnique.mock.calls[0][0];
     expect(call.include.giverFor.where).toEqual({ groupId: 'group-1', year: 2026 });
+  });
+
+  it("loads the santa's matchSuggestions about their receiver once sent, naming only the named suggesters", async () => {
+    mockPrismaDb.person.findUnique.mockResolvedValue({
+      wishlistItems: [],
+      giverFor: [{
+        id: 'a-1',
+        roundId: 'round-1',
+        receiverId: 'p-2',
+        round: { status: 'sent' },
+        receiver: { name: 'Bob', wishlistItems: [] },
+      }],
+    });
+    mockPrismaDb.suggestion.findMany.mockResolvedValue([
+      { id: 'sug-1', name: 'Socks', note: 'Size 10', named: true, byPerson: { name: 'Carol' } },
+      { id: 'sug-2', name: 'Board game', note: null, named: false, byPerson: { name: 'Dave' } },
+    ]);
+
+    const json = await (await personData()).json();
+
+    expect(json.matchSuggestions).toEqual([
+      { id: 'sug-1', name: 'Socks', note: 'Size 10', from: 'Carol' },
+      { id: 'sug-2', name: 'Board game', note: null, from: 'Anonymous' },
+    ]);
+    expect(mockPrismaDb.suggestion.findMany).toHaveBeenCalledWith({
+      where: { roundId: 'round-1', forPersonId: 'p-2' },
+      include: { byPerson: { select: { name: true } } },
+    });
+  });
+
+  // THE KEY NEGATIVE TEST: this is the one place a suggestion crosses to
+  // another person. The query must filter on assignment.receiverId (the
+  // person the caller is gifting) and must NEVER filter on session.personId
+  // (the caller themselves) - otherwise a person who is the SUBJECT of
+  // suggestions would see suggestions made about them via their own
+  // person-data, which is exactly the leak this route must prevent.
+  it("filters matchSuggestions by the receiver's id, never by the caller's own session personId", async () => {
+    mockPrismaDb.person.findUnique.mockResolvedValue({
+      wishlistItems: [],
+      giverFor: [{
+        id: 'a-1',
+        roundId: 'round-1',
+        receiverId: 'p-2',
+        round: { status: 'sent' },
+        receiver: { name: 'Bob', wishlistItems: [] },
+      }],
+    });
+    mockPrismaDb.suggestion.findMany.mockResolvedValue([]);
+
+    await personData();
+
+    const where = mockPrismaDb.suggestion.findMany.mock.calls[0][0].where;
+    expect(where.roundId).toBe('round-1');
+    expect(where.forPersonId).toBe('p-2'); // assignment.receiverId
+    expect(where.forPersonId).not.toBe(mockSession.personId); // never session.personId
+    expect(where.forPersonId).not.toBe('p-1');
   });
 });
 

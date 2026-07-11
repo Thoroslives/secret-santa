@@ -48,9 +48,31 @@ export async function GET() {
     const mine = person.giverFor[0];
     const assignment = mine && mine.round?.status === "sent" ? mine : null;
 
+    // The santa's-eye view: once the match is revealed, the giver may also
+    // see the gift suggestions OTHERS left about their receiver. This is the
+    // one place a suggestion crosses to another person, so the query filters
+    // on assignment.receiverId (the person the caller is gifting) - NEVER on
+    // session.personId (the caller). That keeps the subject of a suggestion
+    // from ever seeing it via their own person-data. Anonymous suggesters
+    // (named:false) are never identified.
+    const matchSuggestions = assignment
+      ? (
+          await prisma.suggestion.findMany({
+            where: { roundId: assignment.roundId, forPersonId: assignment.receiverId },
+            include: { byPerson: { select: { name: true } } },
+          })
+        ).map((s) => ({
+          id: s.id,
+          name: s.name,
+          note: s.note,
+          from: s.named ? s.byPerson.name : "Anonymous",
+        }))
+      : [];
+
     return NextResponse.json({
       wishlistItems: person.wishlistItems,
       assignment,
+      matchSuggestions,
     });
   } catch (error) {
     console.error("Person data error:", error);
