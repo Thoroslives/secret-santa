@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { requireAdminForGroup } from "@/lib/admin";
-import { ensureRound, getActiveYear } from "@/lib/rounds";
+import { ensureRound, getActiveYear, getPreviousYearExclusions } from "@/lib/rounds";
 import { generateDraw } from "@/lib/secret-santa";
 
 // POST /api/rounds/generate {groupId}
@@ -42,12 +42,17 @@ export async function POST(request: NextRequest) {
     const blocks = await prisma.block.findMany({ where: { groupId } });
     const pins = await prisma.forcedPin.findMany({ where: { roundId: round.id } });
 
+    // How many recent rounds' pairs to exclude a repeat giftee from, so no one
+    // gets the same person again too soon (PREVIOUS_YEAR_MEMORY).
+    const memory =
+      (await prisma.group.findUnique({ where: { id: groupId }, select: { previousYearMemory: true } }))
+        ?.previousYearMemory ?? 1;
+    const exclusions = await getPreviousYearExclusions(groupId, currentYear, memory);
+
     const result = generateDraw(people, {
       blocks: blocks.map((b) => [b.personAId, b.personBId] as [string, string]),
       pins: pins.map((p) => ({ giverId: p.giverId, receiverId: p.receiverId })),
-      // P2: no prior-round history exists yet; P3 wires previous-year exclusions
-      // (PREVIOUS_YEAR_MEMORY) from earlier rounds' assignments.
-      exclusions: [],
+      exclusions,
     });
 
     if (!result.ok) {

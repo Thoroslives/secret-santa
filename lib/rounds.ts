@@ -28,3 +28,28 @@ export async function getActiveYear(groupId: string): Promise<number> {
   if (!group) throw new Error(`Group ${groupId} not found`);
   return group.year;
 }
+
+/**
+ * Pairs from the last `memory` rounds, so the draw engine can exclude a
+ * repeat of someone's recent giftee (PREVIOUS_YEAR_MEMORY). Round-based, not
+ * calendar arithmetic - "last N rounds" honours groups that skipped a year.
+ */
+export async function getPreviousYearExclusions(
+  groupId: string,
+  activeYear: number,
+  memory: number
+): Promise<Array<{ giverId: string; receiverId: string }>> {
+  if (memory <= 0) return [];
+  const priorRounds = await prisma.round.findMany({
+    where: { groupId, year: { lt: activeYear } },
+    orderBy: { year: "desc" },
+    take: memory,
+    select: { id: true },
+  });
+  if (priorRounds.length === 0) return [];
+  const assignments = await prisma.assignment.findMany({
+    where: { roundId: { in: priorRounds.map((r) => r.id) } },
+    select: { giverId: true, receiverId: true },
+  });
+  return assignments.map((a) => ({ giverId: a.giverId, receiverId: a.receiverId }));
+}

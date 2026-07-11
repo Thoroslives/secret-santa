@@ -143,13 +143,14 @@ jest.mock('@/lib/secret-santa', () => ({
 jest.mock('@/lib/rounds', () => ({
   ensureRound: jest.fn(),
   getActiveYear: jest.fn(),
+  getPreviousYearExclusions: jest.fn(),
 }));
 
 // ---------------------------------------------------------------------------
 // Imports (after mocks)
 // ---------------------------------------------------------------------------
 import bcrypt from 'bcryptjs';
-import { ensureRound, getActiveYear } from '@/lib/rounds';
+import { ensureRound, getActiveYear, getPreviousYearExclusions } from '@/lib/rounds';
 import { generateGroupInviteCode, generatePersonalLinkToken, validateWishlistItems } from '@/lib/utils';
 import { sendLoginLinkEmail, sendMatchReadyEmail } from '@/lib/email';
 import { generateDraw } from '@/lib/secret-santa';
@@ -1264,8 +1265,10 @@ describe('POST /api/rounds/generate', () => {
     mockSession.adminGroupId = 'group-1';
     (ensureRound as jest.Mock).mockResolvedValue({ id: 'round-1', groupId: 'group-1', year: 2026, status: 'draft' });
     (getActiveYear as jest.Mock).mockResolvedValue(2026);
+    (getPreviousYearExclusions as jest.Mock).mockResolvedValue([]);
     mockPrismaDb.block.findMany.mockResolvedValue([]);
     mockPrismaDb.forcedPin.findMany.mockResolvedValue([]);
+    mockPrismaDb.group.findUnique.mockResolvedValue({ previousYearMemory: 1 });
   });
 
   it('returns 400 when groupId is missing', async () => {
@@ -1333,6 +1336,40 @@ describe('POST /api/rounds/generate', () => {
     expect(mockPrismaDb.assignment.create).toHaveBeenCalledWith(
       expect.objectContaining({ data: expect.objectContaining({ year: 2026 }) })
     );
+  });
+
+  it('feeds generateDraw the previous-year exclusions for the resolved memory depth', async () => {
+    mockPrismaDb.person.findMany.mockResolvedValue(threePeople);
+    mockPrismaDb.group.findUnique.mockResolvedValue({ previousYearMemory: 2 });
+    const exclusions = [{ giverId: 'p-1', receiverId: 'p-2' }];
+    (getPreviousYearExclusions as jest.Mock).mockResolvedValue(exclusions);
+    (generateDraw as jest.Mock).mockReturnValue({ ok: true, assignments: [] });
+    mockPrismaDb.$transaction.mockResolvedValue([]);
+    mockPrismaDb.assignment.findMany.mockResolvedValue([]);
+
+    await generateRound(makePostRequest(url, { groupId: 'group-1' }));
+
+    expect(mockPrismaDb.group.findUnique).toHaveBeenCalledWith({
+      where: { id: 'group-1' },
+      select: { previousYearMemory: true },
+    });
+    expect(getPreviousYearExclusions).toHaveBeenCalledWith('group-1', 2026, 2);
+    expect(generateDraw).toHaveBeenCalledWith(
+      threePeople,
+      expect.objectContaining({ exclusions })
+    );
+  });
+
+  it('defaults the exclusion memory to 1 when the group has no previousYearMemory set', async () => {
+    mockPrismaDb.person.findMany.mockResolvedValue(threePeople);
+    mockPrismaDb.group.findUnique.mockResolvedValue(null);
+    (generateDraw as jest.Mock).mockReturnValue({ ok: true, assignments: [] });
+    mockPrismaDb.$transaction.mockResolvedValue([]);
+    mockPrismaDb.assignment.findMany.mockResolvedValue([]);
+
+    await generateRound(makePostRequest(url, { groupId: 'group-1' }));
+
+    expect(getPreviousYearExclusions).toHaveBeenCalledWith('group-1', 2026, 1);
   });
 
   it('ignores a client-supplied year and resolves the active year server-side', async () => {
