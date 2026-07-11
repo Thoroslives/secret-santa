@@ -1,16 +1,17 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { requireAdminForGroup } from "@/lib/admin";
-import { ensureRound } from "@/lib/rounds";
+import { ensureRound, getActiveYear } from "@/lib/rounds";
 import { generateDraw } from "@/lib/secret-santa";
 
-// POST /api/rounds/generate {groupId, year?}
+// POST /api/rounds/generate {groupId}
 // Computes a constrained draw and persists it as `generated` (admin review
 // state). Sends nothing - that is the separate /api/rounds/send action.
-// Re-callable while the round is not yet `sent` to reroll.
+// Re-callable while the round is not yet `sent` to reroll. The year is
+// always the group's active year, resolved server-side - never client-supplied.
 export async function POST(request: NextRequest) {
   try {
-    const { groupId, year } = await request.json();
+    const { groupId } = await request.json();
     if (!groupId) {
       return NextResponse.json({ error: "Group ID is required" }, { status: 400 });
     }
@@ -18,7 +19,7 @@ export async function POST(request: NextRequest) {
     const forbidden = await requireAdminForGroup(groupId);
     if (forbidden) return forbidden;
 
-    const currentYear = Number(year) || new Date().getFullYear();
+    const currentYear = await getActiveYear(groupId);
     const round = await ensureRound(groupId, currentYear);
     if (round.status === "sent") {
       return NextResponse.json(

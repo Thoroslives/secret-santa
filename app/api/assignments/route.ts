@@ -1,14 +1,17 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { getSession } from "@/lib/session";
+import { getActiveYear } from "@/lib/rounds";
 
-// GET all assignments for a group and year
+// GET all assignments for a group. Admin: optional ?year= for a past year
+// (history view), defaulting to the active year. Participant: always the
+// active year, regardless of any ?year= - a participant can never look at
+// another year's pairing by manipulating the query string.
 export async function GET(request: NextRequest) {
   try {
     const session = await getSession();
     const { searchParams } = new URL(request.url);
     const groupId = searchParams.get("groupId");
-    const year = parseInt(searchParams.get("year") || "") || new Date().getFullYear();
 
     if (!groupId) {
       return NextResponse.json({ error: "Group ID is required" }, { status: 400 });
@@ -19,6 +22,7 @@ export async function GET(request: NextRequest) {
       if (session.adminGroupId !== groupId) {
         return NextResponse.json({ error: "Forbidden" }, { status: 403 });
       }
+      const year = parseInt(searchParams.get("year") || "") || await getActiveYear(groupId);
       const assignments = await prisma.assignment.findMany({
         where: { groupId, year },
         include: {
@@ -40,6 +44,7 @@ export async function GET(request: NextRequest) {
     if (!session.isLoggedIn || !session.personId || session.groupId !== groupId) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
+    const year = await getActiveYear(groupId);
     const mine = await prisma.assignment.findFirst({
       where: { groupId, year, giverId: session.personId },
       include: {
@@ -57,7 +62,9 @@ export async function GET(request: NextRequest) {
   }
 }
 
-// DELETE all assignments for a group and year (admin only)
+// DELETE all assignments for a group's active year (admin only). The year is
+// always resolved server-side - a ?year= on this endpoint is ignored, unlike
+// the GET admin history view.
 export async function DELETE(request: NextRequest) {
   try {
     const session = await getSession();
@@ -68,7 +75,6 @@ export async function DELETE(request: NextRequest) {
 
     const { searchParams } = new URL(request.url);
     const groupId = searchParams.get("groupId");
-    const year = parseInt(searchParams.get("year") || "") || new Date().getFullYear();
 
     if (!groupId) {
       return NextResponse.json({ error: "Group ID is required" }, { status: 400 });
@@ -78,6 +84,8 @@ export async function DELETE(request: NextRequest) {
     if (session.adminGroupId !== groupId) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
+
+    const year = await getActiveYear(groupId);
 
     // Delete the assignments AND reset the round to draft in one transaction.
     // Without the reset, deleting after a Send leaves the round in `sent`, which

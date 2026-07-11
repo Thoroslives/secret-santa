@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { getSession } from "@/lib/session";
+import { getActiveYear } from "@/lib/rounds";
 
 export const dynamic = "force-dynamic";
 
@@ -11,6 +12,8 @@ export async function GET() {
     if (!session.isLoggedIn || !session.personId || !session.groupId) {
       return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
     }
+
+    const year = await getActiveYear(session.groupId);
 
     const person = await prisma.person.findUnique({
       where: { id: session.personId },
@@ -31,7 +34,7 @@ export async function GET() {
           },
           where: {
             groupId: session.groupId,
-            year: new Date().getFullYear(),
+            year,
           },
         },
       },

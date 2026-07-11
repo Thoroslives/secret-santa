@@ -1,30 +1,30 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { requireAdminForGroup } from "@/lib/admin";
+import { getActiveYear } from "@/lib/rounds";
 import { sendMatchReadyEmail } from "@/lib/email";
 
-// POST /api/rounds/send {groupId, year?}         -> flip the round to `sent`
-//                                                   (this is what makes matches
-//                                                   visible to participants),
-//                                                   then best-effort email each
-//                                                   giver a "your match is
-//                                                   ready" note and return the
-//                                                   copyable share-links.
-// POST /api/rounds/send?revert=1 {groupId, year?} -> flip `sent` back to
-//                                                   `generated` (re-hides the
-//                                                   matches; note it cannot
-//                                                   un-see what was already
-//                                                   opened - it just stops
-//                                                   further exposure).
+// POST /api/rounds/send {groupId}         -> flip the round to `sent` (this is
+//                                             what makes matches visible to
+//                                             participants), then best-effort
+//                                             email each giver a "your match is
+//                                             ready" note and return the
+//                                             copyable share-links.
+// POST /api/rounds/send?revert=1 {groupId} -> flip `sent` back to `generated`
+//                                             (re-hides the matches; note it
+//                                             cannot un-see what was already
+//                                             opened - it just stops further
+//                                             exposure).
 //
 // Idempotent: calling send again on an already-sent round re-runs the email
 // loop (a resend) without changing status. Emails are best-effort - the round
 // still becomes `sent` even if some fail; the share-links view is the reliable
-// distribution channel.
+// distribution channel. The year is always the group's active year, resolved
+// server-side - never client-supplied.
 export async function POST(request: NextRequest) {
   try {
     const revert = new URL(request.url).searchParams.get("revert") === "1";
-    const { groupId, year } = await request.json();
+    const { groupId } = await request.json();
     if (!groupId) {
       return NextResponse.json({ error: "Group ID is required" }, { status: 400 });
     }
@@ -32,7 +32,7 @@ export async function POST(request: NextRequest) {
     const forbidden = await requireAdminForGroup(groupId);
     if (forbidden) return forbidden;
 
-    const currentYear = Number(year) || new Date().getFullYear();
+    const currentYear = await getActiveYear(groupId);
     const round = await prisma.round.findUnique({
       where: { groupId_year: { groupId, year: currentYear } },
     });

@@ -169,7 +169,7 @@ export default function AdminDashboard() {
       const res = await fetch("/api/rounds/generate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ groupId: groupInfo.id, year: new Date().getFullYear() }),
+        body: JSON.stringify({ groupId: groupInfo.id }),
       });
 
       const data = await res.json();
@@ -196,7 +196,7 @@ export default function AdminDashboard() {
       const res = await fetch("/api/rounds/send", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ groupId: groupInfo.id, year: new Date().getFullYear() }),
+        body: JSON.stringify({ groupId: groupInfo.id }),
       });
       const data = await res.json();
       if (!res.ok) {
@@ -221,7 +221,7 @@ export default function AdminDashboard() {
     setSuccessMessage("");
 
     try {
-      const res = await fetch(`/api/assignments?groupId=${groupInfo.id}&year=${new Date().getFullYear()}`, {
+      const res = await fetch(`/api/assignments?groupId=${groupInfo.id}`, {
         method: "DELETE",
       });
 

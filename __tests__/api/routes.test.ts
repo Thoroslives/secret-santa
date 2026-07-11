@@ -133,17 +133,23 @@ jest.mock('@/lib/secret-santa', () => ({
 }));
 
 // ---------------------------------------------------------------------------
-// Mock @/lib/rounds (ensureRound) so pin/generate tests control the round
+// Mock @/lib/rounds (ensureRound, getActiveYear) so pin/generate/send/
+// assignments/person-data tests control the round and active year directly.
+// Every export lib/rounds.ts has MUST be listed here - a route importing an
+// export this mock omits gets `undefined` back and 500s before its own logic
+// ever runs. The real ensureRound/getActiveYear logic is exercised separately
+// in __tests__/lib/rounds.test.ts, which mocks '@/lib/db' instead of this module.
 // ---------------------------------------------------------------------------
 jest.mock('@/lib/rounds', () => ({
   ensureRound: jest.fn(),
+  getActiveYear: jest.fn(),
 }));
 
 // ---------------------------------------------------------------------------
 // Imports (after mocks)
 // ---------------------------------------------------------------------------
 import bcrypt from 'bcryptjs';
-import { ensureRound } from '@/lib/rounds';
+import { ensureRound, getActiveYear } from '@/lib/rounds';
 import { generateGroupInviteCode, generatePersonalLinkToken, validateWishlistItems } from '@/lib/utils';
 import { sendLoginLinkEmail, sendMatchReadyEmail } from '@/lib/email';
 import { generateDraw } from '@/lib/secret-santa';
@@ -889,6 +895,7 @@ describe('GET /api/assignments', () => {
   beforeEach(() => {
     mockSession.isAdmin = true;
     mockSession.adminGroupId = 'group-1';
+    (getActiveYear as jest.Mock).mockResolvedValue(2026);
   });
 
   it('returns 400 when groupId is missing', async () => {
@@ -899,7 +906,7 @@ describe('GET /api/assignments', () => {
     expect(json.error).toBe('Group ID is required');
   });
 
-  it('returns 200 with assignments', async () => {
+  it('returns 200 with assignments, defaulting to the active year', async () => {
     const assignments = [
       {
         id: 'a-1',
@@ -916,6 +923,23 @@ describe('GET /api/assignments', () => {
     expect(res.status).toBe(200);
     const json = await res.json();
     expect(json.assignments).toEqual(assignments);
+    expect(getActiveYear).toHaveBeenCalledWith('group-1');
+    expect(mockPrismaDb.assignment.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { groupId: 'group-1', year: 2026 } })
+    );
+  });
+
+  it('admin can view a past year via ?year= (history view) without consulting the active year', async () => {
+    mockPrismaDb.assignment.findMany.mockResolvedValue([]);
+
+    const req = makeGetRequest('http://localhost:3000/api/assignments?groupId=group-1&year=2024');
+    const res = await getAssignments(req);
+    expect(res.status).toBe(200);
+    expect(mockPrismaDb.assignment.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { groupId: 'group-1', year: 2024 } })
+    );
+    // explicit year short-circuits - the active-year lookup is never needed
+    expect(getActiveYear).not.toHaveBeenCalled();
   });
 
   it('participant sees only their OWN match and only once sent', async () => {
@@ -935,11 +959,24 @@ describe('GET /api/assignments', () => {
     const json = await res.json();
     expect(json.ready).toBe(true);
     expect(json.assignment.giverId).toBe('p-1');
-    // scoped to the caller only, never the whole table
+    // scoped to the caller only, never the whole table, and always the active year
     expect(mockPrismaDb.assignment.findFirst).toHaveBeenCalledWith(
-      expect.objectContaining({ where: expect.objectContaining({ giverId: 'p-1' }) })
+      expect.objectContaining({ where: expect.objectContaining({ giverId: 'p-1', year: 2026 }) })
     );
     expect(mockPrismaDb.assignment.findMany).not.toHaveBeenCalled();
+  });
+
+  it('participant always gets the active year, ignoring any client-supplied ?year=', async () => {
+    delete mockSession.isAdmin;
+    mockSession.isLoggedIn = true;
+    mockSession.personId = 'p-1';
+    mockSession.groupId = 'group-1';
+    mockPrismaDb.assignment.findFirst.mockResolvedValue(null);
+
+    await getAssignments(makeGetRequest('http://localhost:3000/api/assignments?groupId=group-1&year=1999'));
+    expect(mockPrismaDb.assignment.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({ where: expect.objectContaining({ year: 2026 }) })
+    );
   });
 
   it('participant sees nothing before the round is sent', async () => {
@@ -972,6 +1009,7 @@ describe('DELETE /api/assignments', () => {
   beforeEach(() => {
     mockSession.isAdmin = true;
     mockSession.adminGroupId = 'group-1';
+    (getActiveYear as jest.Mock).mockResolvedValue(2026);
   });
 
   it('returns 400 when groupId is missing', async () => {
@@ -992,8 +1030,22 @@ describe('DELETE /api/assignments', () => {
     expect((await res.json()).success).toBe(true);
     // the round must be reset so a post-send delete doesn't brick regeneration
     expect(mockPrismaDb.round.updateMany).toHaveBeenCalledWith(
-      expect.objectContaining({ data: { status: 'draft', sentAt: null } })
+      expect.objectContaining({ where: { groupId: 'group-1', year: 2026 }, data: { status: 'draft', sentAt: null } })
     );
+    expect(mockPrismaDb.assignment.deleteMany).toHaveBeenCalledWith({
+      where: { groupId: 'group-1', year: 2026 },
+    });
+  });
+
+  it('ignores a client-supplied ?year= and deletes the active year only', async () => {
+    mockPrismaDb.assignment.deleteMany.mockResolvedValue({ count: 1 });
+    mockPrismaDb.$transaction.mockResolvedValue([]);
+
+    const req = makeDeleteRequest('http://localhost:3000/api/assignments?groupId=group-1&year=1999');
+    await deleteAssignments(req);
+    expect(mockPrismaDb.assignment.deleteMany).toHaveBeenCalledWith({
+      where: { groupId: 'group-1', year: 2026 },
+    });
   });
 });
 
@@ -1201,6 +1253,7 @@ describe('POST /api/rounds/generate', () => {
     mockSession.isAdmin = true;
     mockSession.adminGroupId = 'group-1';
     (ensureRound as jest.Mock).mockResolvedValue({ id: 'round-1', groupId: 'group-1', year: 2026, status: 'draft' });
+    (getActiveYear as jest.Mock).mockResolvedValue(2026);
     mockPrismaDb.block.findMany.mockResolvedValue([]);
     mockPrismaDb.forcedPin.findMany.mockResolvedValue([]);
   });
@@ -1262,6 +1315,36 @@ describe('POST /api/rounds/generate', () => {
     expect(mockPrismaDb.round.update).toHaveBeenCalledWith(
       expect.objectContaining({ where: { id: 'round-1' }, data: { status: 'generated' } })
     );
+    // the round and every persisted assignment used the server-resolved active year
+    expect(ensureRound).toHaveBeenCalledWith('group-1', 2026);
+    expect(mockPrismaDb.assignment.deleteMany).toHaveBeenCalledWith({
+      where: { groupId: 'group-1', year: 2026 },
+    });
+    expect(mockPrismaDb.assignment.create).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ year: 2026 }) })
+    );
+  });
+
+  it('ignores a client-supplied year and resolves the active year server-side', async () => {
+    mockPrismaDb.person.findMany.mockResolvedValue(threePeople);
+    (generateDraw as jest.Mock).mockReturnValue({
+      ok: true,
+      assignments: [
+        { giverId: 'p-1', receiverId: 'p-2' },
+        { giverId: 'p-2', receiverId: 'p-3' },
+        { giverId: 'p-3', receiverId: 'p-1' },
+      ],
+    });
+    mockPrismaDb.$transaction.mockResolvedValue([]);
+    mockPrismaDb.assignment.findMany.mockResolvedValue([]);
+
+    // A client trying to sneak a different year in the body must not affect
+    // which year gets generated - only Group.year (via getActiveYear) does.
+    await generateRound(makePostRequest(url, { groupId: 'group-1', year: 1999 }));
+    expect(ensureRound).toHaveBeenCalledWith('group-1', 2026);
+    expect(mockPrismaDb.assignment.deleteMany).toHaveBeenCalledWith({
+      where: { groupId: 'group-1', year: 2026 },
+    });
   });
 });
 
@@ -1279,6 +1362,7 @@ describe('POST /api/rounds/send', () => {
   beforeEach(() => {
     mockSession.isAdmin = true;
     mockSession.adminGroupId = 'group-1';
+    (getActiveYear as jest.Mock).mockResolvedValue(2026);
     mockPrismaDb.round.findUnique.mockResolvedValue(generatedRound);
     mockPrismaDb.assignment.findMany.mockResolvedValue(assignments);
     mockPrismaDb.group.findUnique.mockResolvedValue({ id: 'group-1', name: 'Smiths' });
@@ -1317,6 +1401,17 @@ describe('POST /api/rounds/send', () => {
     expect(sendMatchReadyEmail).toHaveBeenCalledWith('alice@x.com', 'Alice', 'Smiths', expect.stringContaining('/p/tokA'));
     expect(json.sent).toBe(1);
     expect(json.shareLinks).toHaveLength(2); // Alice + Bob, not inactive Zoe
+    // the round looked up was the server-resolved active year, not a client one
+    expect(mockPrismaDb.round.findUnique).toHaveBeenCalledWith({
+      where: { groupId_year: { groupId: 'group-1', year: 2026 } },
+    });
+  });
+
+  it('ignores a client-supplied year and resolves the active year server-side', async () => {
+    await sendRound(makePostRequest(url, { groupId: 'group-1', year: 1999 }));
+    expect(mockPrismaDb.round.findUnique).toHaveBeenCalledWith({
+      where: { groupId_year: { groupId: 'group-1', year: 2026 } },
+    });
   });
 
   it('resend on an already-sent round re-mails without re-flipping', async () => {
@@ -1352,6 +1447,7 @@ describe('GET /api/auth/person-data', () => {
     mockSession.isLoggedIn = true;
     mockSession.personId = 'p-1';
     mockSession.groupId = 'group-1';
+    (getActiveYear as jest.Mock).mockResolvedValue(2026);
   });
 
   it('returns 401 when not logged in', async () => {
@@ -1368,7 +1464,7 @@ describe('GET /api/auth/person-data', () => {
     expect(json.assignment).toBeNull();
   });
 
-  it('reveals the match once the round is sent', async () => {
+  it('reveals the match once the round is sent, filtered to the active year', async () => {
     mockPrismaDb.person.findUnique.mockResolvedValue({
       wishlistItems: [],
       giverFor: [{ id: 'a-1', round: { status: 'sent' }, receiver: { name: 'Bob', wishlistItems: [] } }],
@@ -1376,6 +1472,10 @@ describe('GET /api/auth/person-data', () => {
     const json = await (await personData()).json();
     expect(json.assignment).not.toBeNull();
     expect(json.assignment.id).toBe('a-1');
+
+    expect(getActiveYear).toHaveBeenCalledWith('group-1');
+    const call = mockPrismaDb.person.findUnique.mock.calls[0][0];
+    expect(call.include.giverFor.where).toEqual({ groupId: 'group-1', year: 2026 });
   });
 });
 
