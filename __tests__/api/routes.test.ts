@@ -155,6 +155,7 @@ import { GET as personalLinkLogin } from '@/app/p/[token]/route';
 import { POST as emailLink } from '@/app/api/auth/email-link/route';
 import { GET as getPeople, POST as createPerson } from '@/app/api/people/route';
 import { DELETE as deletePerson, PATCH as patchPerson } from '@/app/api/people/[id]/route';
+import { GET as personData } from '@/app/api/auth/person-data/route';
 import { POST as updateWishlist } from '@/app/api/wishlist/route';
 import { GET as getAssignments, DELETE as deleteAssignments } from '@/app/api/assignments/route';
 import { POST as adminAuth } from '@/app/api/admin/auth/route';
@@ -736,12 +737,12 @@ describe('PATCH /api/people/[id]', () => {
       mockSession.adminGroupId = 'group-1';
     });
 
-    it('returns 400 when active is not a boolean', async () => {
+    it('returns 400 when neither a boolean active nor rotateLink is given', async () => {
       const req = makePatchRequest(url, { active: 'nope' });
       const res = await patchPerson(req, { params: { id: 'person-1' } } as any);
       expect(res.status).toBe(400);
       const json = await res.json();
-      expect(json.error).toBe('active must be a boolean');
+      expect(json.error).toMatch(/active.*rotateLink/i);
     });
 
     it('returns 404 when person is not found', async () => {
@@ -1339,5 +1340,73 @@ describe('POST /api/rounds/send', () => {
   it('refuses to revert a round that is not sent', async () => {
     mockPrismaDb.round.findUnique.mockResolvedValue(generatedRound);
     expect((await sendRound(makePostRequest(url + '?revert=1', { groupId: 'group-1' }))).status).toBe(400);
+  });
+});
+
+// ===========================================================================
+// GET /api/auth/person-data - the participant-facing privacy path (the one the
+// wishlist page actually calls). Match must be blind until the round is sent.
+// ===========================================================================
+describe('GET /api/auth/person-data', () => {
+  beforeEach(() => {
+    mockSession.isLoggedIn = true;
+    mockSession.personId = 'p-1';
+    mockSession.groupId = 'group-1';
+  });
+
+  it('returns 401 when not logged in', async () => {
+    delete mockSession.isLoggedIn;
+    expect((await personData()).status).toBe(401);
+  });
+
+  it('hides the match until the round is sent (blind before send)', async () => {
+    mockPrismaDb.person.findUnique.mockResolvedValue({
+      wishlistItems: [],
+      giverFor: [{ id: 'a-1', round: { status: 'generated' }, receiver: { name: 'Bob', wishlistItems: [] } }],
+    });
+    const json = await (await personData()).json();
+    expect(json.assignment).toBeNull();
+  });
+
+  it('reveals the match once the round is sent', async () => {
+    mockPrismaDb.person.findUnique.mockResolvedValue({
+      wishlistItems: [],
+      giverFor: [{ id: 'a-1', round: { status: 'sent' }, receiver: { name: 'Bob', wishlistItems: [] } }],
+    });
+    const json = await (await personData()).json();
+    expect(json.assignment).not.toBeNull();
+    expect(json.assignment.id).toBe('a-1');
+  });
+});
+
+// ===========================================================================
+// PATCH /api/people/[id] rotateLink - durable-link rotation (admin)
+// ===========================================================================
+describe('PATCH /api/people/[id] rotateLink', () => {
+  beforeEach(() => {
+    mockSession.isAdmin = true;
+    mockSession.adminGroupId = 'group-1';
+    mockPrismaDb.person.findUnique.mockResolvedValue({ id: 'person-1', groupId: 'group-1' });
+    mockPrismaDb.person.update.mockResolvedValue({ id: 'person-1', personalLinkToken: 'tok_test' });
+  });
+
+  it('reissues a fresh personalLinkToken', async () => {
+    const res = await patchPerson(
+      makePatchRequest('http://localhost:3000/api/people/person-1', { rotateLink: true }),
+      { params: { id: 'person-1' } } as any
+    );
+    expect(res.status).toBe(200);
+    expect(generatePersonalLinkToken).toHaveBeenCalled();
+    expect(mockPrismaDb.person.update).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ personalLinkToken: 'tok_test' }) })
+    );
+  });
+
+  it('rejects a PATCH with neither active nor rotateLink', async () => {
+    const res = await patchPerson(
+      makePatchRequest('http://localhost:3000/api/people/person-1', {}),
+      { params: { id: 'person-1' } } as any
+    );
+    expect(res.status).toBe(400);
   });
 });

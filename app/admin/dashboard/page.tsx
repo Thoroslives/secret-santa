@@ -350,7 +350,7 @@ export default function AdminDashboard() {
                   placeholder="person@example.com"
                 />
                 <p className="text-xs text-gray-500 mt-1">
-                  If provided, they can log in via email magic link instead of using the login code
+                  If provided, they can request their personal login link by email (self-service)
                 </p>
               </div>
 
@@ -545,7 +545,7 @@ export default function AdminDashboard() {
                           <div className="flex items-center gap-2">
                             <span className="text-gray-300 text-sm">{person.email}</span>
                             <span className="bg-santa-gold/10 text-santa-gold text-xs px-2 py-1 rounded-full font-semibold border border-santa-gold/20">
-                              Magic Link
+                              Email link
                             </span>
                           </div>
                         ) : (

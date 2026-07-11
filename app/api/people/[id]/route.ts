@@ -1,9 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { getSession } from "@/lib/session";
+import { generatePersonalLinkToken } from "@/lib/utils";
 
-// PATCH a person's active flag (admin only) - used to enable/disable a person's
-// durable personal link without deleting their history (wishlist, assignments).
+// PATCH a person (admin only). Two admin actions, either or both per call:
+//   { active: boolean }   - enable/disable their durable link without losing
+//                           history (wishlist, assignments).
+//   { rotateLink: true }  - reissue a fresh personalLinkToken, invalidating the
+//                           old /p/<token> link (use if a link leaks).
 export async function PATCH(
   request: NextRequest,
   { params }: { params: { id: string } }
@@ -16,10 +20,13 @@ export async function PATCH(
     }
 
     const { id } = params;
-    const { active } = await request.json();
+    const { active, rotateLink } = await request.json();
 
-    if (typeof active !== "boolean") {
-      return NextResponse.json({ error: "active must be a boolean" }, { status: 400 });
+    if (typeof active !== "boolean" && rotateLink !== true) {
+      return NextResponse.json(
+        { error: "Provide `active` (boolean) and/or `rotateLink: true`" },
+        { status: 400 }
+      );
     }
 
     // Verify the person belongs to the admin's group
@@ -31,10 +38,11 @@ export async function PATCH(
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
-    const updated = await prisma.person.update({
-      where: { id },
-      data: { active },
-    });
+    const data: { active?: boolean; personalLinkToken?: string } = {};
+    if (typeof active === "boolean") data.active = active;
+    if (rotateLink === true) data.personalLinkToken = generatePersonalLinkToken();
+
+    const updated = await prisma.person.update({ where: { id }, data });
 
     return NextResponse.json({ person: updated });
   } catch (error) {
