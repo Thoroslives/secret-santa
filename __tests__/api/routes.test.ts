@@ -141,12 +141,29 @@ jest.mock('@/lib/rounds', () => ({
 }));
 
 // ---------------------------------------------------------------------------
+// Mock setup for @/lib/oidc (discovery/PKCE/exchange, from B1) so the OIDC
+// login/callback route tests below control the flow directly, per the real
+// unit coverage in __tests__/lib/oidc.test.ts. NOTE: @/lib/adminAuth is
+// deliberately NOT mocked anywhere in this file (see POST /api/admin/auth
+// below, which already drives the real verifyBreakGlass) - the OIDC callback
+// tests drive the REAL isAllowedAdminEmail too, so the allow-list gate is
+// genuinely exercised rather than assumed.
+// ---------------------------------------------------------------------------
+jest.mock('@/lib/oidc', () => ({
+  isOidcConfigured: jest.fn(),
+  getOidcConfig: jest.fn(),
+  buildAdminLoginUrl: jest.fn(),
+  completeAdminLogin: jest.fn(),
+}));
+
+// ---------------------------------------------------------------------------
 // Imports (after mocks)
 // ---------------------------------------------------------------------------
 import { ensureRound, getActiveYear, getPreviousYearExclusions } from '@/lib/rounds';
 import { generateGroupInviteCode, generatePersonalLinkToken, validateWishlistItems } from '@/lib/utils';
 import { sendLoginLinkEmail, sendMatchReadyEmail } from '@/lib/email';
 import { generateDraw } from '@/lib/secret-santa';
+import { isOidcConfigured, getOidcConfig, buildAdminLoginUrl, completeAdminLogin } from '@/lib/oidc';
 
 import { POST as createGroup } from '@/app/api/groups/create/route';
 import { POST as verifyGroup } from '@/app/api/groups/verify/route';
@@ -161,6 +178,8 @@ import { POST as updateWishlist } from '@/app/api/wishlist/route';
 import { GET as getAssignments, DELETE as deleteAssignments } from '@/app/api/assignments/route';
 import { GET as getSessionInfo } from '@/app/api/auth/session/route';
 import { POST as adminAuth } from '@/app/api/admin/auth/route';
+import { GET as oidcLogin } from '@/app/api/admin/oidc/login/route';
+import { GET as oidcCallback } from '@/app/api/admin/oidc/callback/route';
 import { POST as createBlock, DELETE as deleteBlock } from '@/app/api/blocks/route';
 import { POST as createPin, DELETE as deletePin } from '@/app/api/pins/route';
 import { POST as generateRound } from '@/app/api/rounds/generate/route';
@@ -2708,5 +2727,284 @@ describe('GET /api/groups', () => {
       select: { id: true, name: true, year: true },
       orderBy: { name: 'asc' },
     });
+  });
+});
+
+// ===========================================================================
+// GET /api/admin/oidc/login - initiates the admin OIDC authorization-code +
+// PKCE redirect (P4-B2). @/lib/oidc is mocked (see the jest.mock block near
+// the top) so these tests control discovery/URL-build directly; the real
+// exchange+PKCE mechanics are covered by __tests__/lib/oidc.test.ts. Every
+// mocked fn's behavior is set explicitly per test - jest.clearAllMocks() in
+// the file-level beforeEach resets call history but NOT a previously-set
+// mockResolvedValue/mockImplementation.
+// ===========================================================================
+describe('GET /api/admin/oidc/login', () => {
+  const url = 'http://localhost:3000/api/admin/oidc/login';
+
+  it('redirects to /admin?error=oidc_unavailable when OIDC is not configured, without calling getOidcConfig', async () => {
+    (isOidcConfigured as jest.Mock).mockReturnValue(false);
+
+    const res = await oidcLogin(makeGetRequest(url));
+
+    expect(res.status).toBe(307);
+    expect(res.headers.get('location')).toContain('/admin?error=oidc_unavailable');
+    expect(getOidcConfig).not.toHaveBeenCalled();
+    expect(buildAdminLoginUrl).not.toHaveBeenCalled();
+    expect(mockSession.save).not.toHaveBeenCalled();
+  });
+
+  it('redirects to /admin?error=oidc_unavailable when getOidcConfig resolves null (IdP unreachable)', async () => {
+    (isOidcConfigured as jest.Mock).mockReturnValue(true);
+    (getOidcConfig as jest.Mock).mockResolvedValue(null);
+
+    const res = await oidcLogin(makeGetRequest(url));
+
+    expect(res.status).toBe(307);
+    expect(res.headers.get('location')).toContain('/admin?error=oidc_unavailable');
+    expect(buildAdminLoginUrl).not.toHaveBeenCalled();
+    expect(mockSession.save).not.toHaveBeenCalled();
+  });
+
+  it('redirects to /admin?error=oidc_unavailable when buildAdminLoginUrl throws (e.g. OIDC_REDIRECT_URI unset)', async () => {
+    (isOidcConfigured as jest.Mock).mockReturnValue(true);
+    const fakeConfig = { fake: 'config' };
+    (getOidcConfig as jest.Mock).mockResolvedValue(fakeConfig);
+    (buildAdminLoginUrl as jest.Mock).mockRejectedValue(
+      new Error('OIDC_REDIRECT_URI is required when OIDC is configured')
+    );
+
+    const res = await oidcLogin(makeGetRequest(url));
+
+    expect(res.status).toBe(307);
+    expect(res.headers.get('location')).toContain('/admin?error=oidc_unavailable');
+    // The throw happens before session.save() is reached - nothing persisted.
+    expect(mockSession.save).not.toHaveBeenCalled();
+  });
+
+  it('builds the login URL, persists the session, and redirects to it when OIDC is configured and reachable', async () => {
+    (isOidcConfigured as jest.Mock).mockReturnValue(true);
+    const fakeConfig = { fake: 'config' };
+    (getOidcConfig as jest.Mock).mockResolvedValue(fakeConfig);
+    const builtUrl = new URL('https://idp.example.com/authorize?client_id=abc&state=state-xyz');
+    // mockImplementation (not mockResolvedValue) so the mock mirrors the real
+    // buildAdminLoginUrl's documented side effect of stashing the PKCE
+    // verifier/state onto the session object it's given - this is what the
+    // route is then expected to persist via session.save() before redirecting.
+    (buildAdminLoginUrl as jest.Mock).mockImplementation(async (_config, session) => {
+      session.oidcVerifier = 'verifier-abc';
+      session.oidcState = 'state-xyz';
+      return builtUrl;
+    });
+
+    const res = await oidcLogin(makeGetRequest(url));
+
+    expect(buildAdminLoginUrl).toHaveBeenCalledWith(fakeConfig, mockSession);
+    // Cookie-on-redirect: the transient state set by buildAdminLoginUrl must
+    // still be on the session by the time save() runs.
+    expect(mockSession.oidcVerifier).toBe('verifier-abc');
+    expect(mockSession.oidcState).toBe('state-xyz');
+    expect(mockSession.save).toHaveBeenCalled();
+
+    expect(res.status).toBe(307);
+    expect(res.headers.get('location')).toBe(builtUrl.href);
+  });
+});
+
+// ===========================================================================
+// GET /api/admin/oidc/callback - completes the admin OIDC exchange. THE auth
+// boundary: isAdmin may only become true via a successful exchange AND a
+// verified + allow-listed email. @/lib/adminAuth is deliberately NOT mocked
+// anywhere in this file (see POST /api/admin/auth above) - isAllowedAdminEmail
+// runs for REAL here so the allow-list gate is genuinely exercised, not just
+// assumed. Every @/lib/oidc mock's behavior is set explicitly per test (see
+// the note above GET /api/admin/oidc/login).
+// ===========================================================================
+describe('GET /api/admin/oidc/callback', () => {
+  const url = 'http://localhost:3000/api/admin/oidc/callback?code=abc123&state=state-xyz';
+  const ALLOWED_EMAIL = 'alice@example.com';
+  const originalAllowlist = process.env.ADMIN_OIDC_ALLOWED_EMAILS;
+
+  afterEach(() => {
+    if (originalAllowlist === undefined) delete process.env.ADMIN_OIDC_ALLOWED_EMAILS;
+    else process.env.ADMIN_OIDC_ALLOWED_EMAILS = originalAllowlist;
+  });
+
+  // Simulates the state buildAdminLoginUrl would have stashed on the login leg.
+  function primePendingFlow() {
+    mockSession.oidcVerifier = 'verifier-abc';
+    mockSession.oidcState = 'state-xyz';
+  }
+
+  it('redirects to /admin?error=oidc_state when there is no pending flow on the session (both missing)', async () => {
+    const res = await oidcCallback(makeGetRequest(url));
+
+    expect(res.status).toBe(307);
+    expect(res.headers.get('location')).toContain('/admin?error=oidc_state');
+    expect(getOidcConfig).not.toHaveBeenCalled();
+    expect(completeAdminLogin).not.toHaveBeenCalled();
+    expect(mockSession.isAdmin).toBeFalsy();
+    expect(mockSession.save).not.toHaveBeenCalled();
+  });
+
+  it('redirects to /admin?error=oidc_state when oidcState alone is missing', async () => {
+    mockSession.oidcVerifier = 'verifier-abc';
+
+    const res = await oidcCallback(makeGetRequest(url));
+
+    expect(res.status).toBe(307);
+    expect(res.headers.get('location')).toContain('/admin?error=oidc_state');
+    expect(completeAdminLogin).not.toHaveBeenCalled();
+    expect(mockSession.isAdmin).toBeFalsy();
+  });
+
+  it('redirects to /admin?error=oidc_state when oidcVerifier alone is missing', async () => {
+    mockSession.oidcState = 'state-xyz';
+
+    const res = await oidcCallback(makeGetRequest(url));
+
+    expect(res.status).toBe(307);
+    expect(res.headers.get('location')).toContain('/admin?error=oidc_state');
+    expect(completeAdminLogin).not.toHaveBeenCalled();
+    expect(mockSession.isAdmin).toBeFalsy();
+  });
+
+  it('redirects to /admin?error=oidc_unavailable when getOidcConfig resolves null', async () => {
+    primePendingFlow();
+    (getOidcConfig as jest.Mock).mockResolvedValue(null);
+
+    const res = await oidcCallback(makeGetRequest(url));
+
+    expect(res.status).toBe(307);
+    expect(res.headers.get('location')).toContain('/admin?error=oidc_unavailable');
+    expect(completeAdminLogin).not.toHaveBeenCalled();
+    expect(mockSession.isAdmin).toBeFalsy();
+  });
+
+  it('redirects to /admin?error=oidc_failed when completeAdminLogin throws, without reflecting the error text', async () => {
+    primePendingFlow();
+    (getOidcConfig as jest.Mock).mockResolvedValue({ fake: 'config' });
+    (completeAdminLogin as jest.Mock).mockRejectedValue(
+      new Error('<script>state mismatch</script>')
+    );
+
+    const res = await oidcCallback(makeGetRequest(url));
+
+    expect(res.status).toBe(307);
+    const location = res.headers.get('location')!;
+    expect(location).toContain('/admin?error=oidc_failed');
+    // Fixed enum only - never the thrown error's own message/content.
+    expect(location).not.toContain('script');
+    expect(location).not.toContain('state mismatch');
+    expect(mockSession.isAdmin).toBeFalsy();
+  });
+
+  it('does not clear the transient verifier/state on the oidc_failed path (only not_authorized and success clear it)', async () => {
+    primePendingFlow();
+    (getOidcConfig as jest.Mock).mockResolvedValue({ fake: 'config' });
+    (completeAdminLogin as jest.Mock).mockRejectedValue(new Error('exchange failed'));
+
+    await oidcCallback(makeGetRequest(url));
+
+    expect(mockSession.oidcVerifier).toBe('verifier-abc');
+    expect(mockSession.oidcState).toBe('state-xyz');
+    expect(mockSession.save).not.toHaveBeenCalled();
+  });
+
+  it('redirects to /admin?error=not_authorized and does NOT set isAdmin when the email is verified but not allow-listed', async () => {
+    process.env.ADMIN_OIDC_ALLOWED_EMAILS = ALLOWED_EMAIL;
+    primePendingFlow();
+    (getOidcConfig as jest.Mock).mockResolvedValue({ fake: 'config' });
+    (completeAdminLogin as jest.Mock).mockResolvedValue({
+      sub: 'sub-mallory',
+      email: 'mallory@example.com',
+      email_verified: true,
+    });
+
+    const res = await oidcCallback(makeGetRequest(url));
+
+    expect(res.status).toBe(307);
+    expect(res.headers.get('location')).toContain('/admin?error=not_authorized');
+    expect(mockSession.isAdmin).toBeFalsy();
+    expect(mockSession.adminEmail).toBeUndefined();
+    expect(mockSession.adminLoginMethod).toBeUndefined();
+    // Transient state IS cleared on the not-authorized path.
+    expect(mockSession.oidcVerifier).toBeUndefined();
+    expect(mockSession.oidcState).toBeUndefined();
+    expect(mockSession.save).toHaveBeenCalled();
+  });
+
+  it('redirects to /admin?error=not_authorized and does NOT set isAdmin when the email is allow-listed but not verified', async () => {
+    process.env.ADMIN_OIDC_ALLOWED_EMAILS = ALLOWED_EMAIL;
+    primePendingFlow();
+    (getOidcConfig as jest.Mock).mockResolvedValue({ fake: 'config' });
+    (completeAdminLogin as jest.Mock).mockResolvedValue({
+      sub: 'sub-alice',
+      email: ALLOWED_EMAIL,
+      email_verified: false,
+    });
+
+    const res = await oidcCallback(makeGetRequest(url));
+
+    expect(res.status).toBe(307);
+    expect(res.headers.get('location')).toContain('/admin?error=not_authorized');
+    expect(mockSession.isAdmin).toBeFalsy();
+    expect(mockSession.oidcVerifier).toBeUndefined();
+    expect(mockSession.oidcState).toBeUndefined();
+    expect(mockSession.save).toHaveBeenCalled();
+  });
+
+  it('redirects to /admin?error=not_authorized (fails closed) when ADMIN_OIDC_ALLOWED_EMAILS is unset entirely', async () => {
+    delete process.env.ADMIN_OIDC_ALLOWED_EMAILS;
+    primePendingFlow();
+    (getOidcConfig as jest.Mock).mockResolvedValue({ fake: 'config' });
+    (completeAdminLogin as jest.Mock).mockResolvedValue({
+      sub: 'sub-alice',
+      email: ALLOWED_EMAIL,
+      email_verified: true,
+    });
+
+    const res = await oidcCallback(makeGetRequest(url));
+
+    expect(res.status).toBe(307);
+    expect(res.headers.get('location')).toContain('/admin?error=not_authorized');
+    expect(mockSession.isAdmin).toBeFalsy();
+  });
+
+  it('sets isAdmin/adminEmail/adminLoginMethod, clears transient state, logs the audit line, and redirects to /admin/dashboard for an allow-listed verified email', async () => {
+    process.env.ADMIN_OIDC_ALLOWED_EMAILS = ALLOWED_EMAIL;
+    primePendingFlow();
+    const fakeConfig = { fake: 'config' };
+    (getOidcConfig as jest.Mock).mockResolvedValue(fakeConfig);
+    (completeAdminLogin as jest.Mock).mockResolvedValue({
+      sub: 'sub-alice',
+      email: ALLOWED_EMAIL,
+      email_verified: true,
+    });
+    const infoSpy = jest.spyOn(console, 'info').mockImplementation(() => {});
+
+    const res = await oidcCallback(makeGetRequest(url));
+
+    expect(completeAdminLogin).toHaveBeenCalledWith(fakeConfig, expect.any(URL), mockSession);
+    const calledUrl = (completeAdminLogin as jest.Mock).mock.calls[0][1];
+    expect(calledUrl.toString()).toBe(url);
+
+    expect(mockSession.isAdmin).toBe(true);
+    expect(mockSession.adminEmail).toBe(ALLOWED_EMAIL);
+    expect(mockSession.adminLoginMethod).toBe('oidc');
+    expect(mockSession.oidcVerifier).toBeUndefined();
+    expect(mockSession.oidcState).toBeUndefined();
+    expect(mockSession.save).toHaveBeenCalled();
+
+    expect(res.status).toBe(307);
+    expect(res.headers.get('location')).toContain('/admin/dashboard');
+
+    // Structured audit line: sub + email present somewhere in the log call.
+    expect(infoSpy).toHaveBeenCalled();
+    const loggedText = infoSpy.mock.calls.map((call) => JSON.stringify(call)).join(' ');
+    expect(loggedText).toContain('sub-alice');
+    expect(loggedText).toContain(ALLOWED_EMAIL);
+
+    infoSpy.mockRestore();
   });
 });

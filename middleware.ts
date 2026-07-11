@@ -42,7 +42,9 @@ export async function middleware(request: NextRequest) {
   if (
     pathname.startsWith("/api/auth/") ||
     pathname.startsWith("/api/groups/verify") ||
-    pathname.startsWith("/api/admin/auth")
+    pathname.startsWith("/api/admin/auth") ||
+    pathname.startsWith("/api/admin/oidc/login") ||
+    pathname.startsWith("/api/admin/oidc/callback")
   ) {
     return NextResponse.next();
   }
