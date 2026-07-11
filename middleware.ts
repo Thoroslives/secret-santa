@@ -41,7 +41,6 @@ export async function middleware(request: NextRequest) {
   // Skip auth for public routes and auth endpoints
   if (
     pathname.startsWith("/api/auth/") ||
-    pathname.startsWith("/api/groups/create") ||
     pathname.startsWith("/api/groups/verify") ||
     pathname.startsWith("/api/admin/auth")
   ) {
@@ -75,6 +74,20 @@ export async function middleware(request: NextRequest) {
       }
       return response;
     }
+  }
+
+  // Group creation and the admin group list are admin-only (no public
+  // sign-up - P4-A4). Matched exactly, NOT as a prefix: GET /api/groups/[id]
+  // (participant reads their own group) and POST /api/groups/verify
+  // (invite-code lookup) must stay open to participants.
+  if (
+    (pathname.startsWith("/api/groups/create") && method === "POST") ||
+    (pathname === "/api/groups" && method === "GET")
+  ) {
+    if (!session.isAdmin) {
+      return NextResponse.json({ error: "Admin authentication required" }, { status: 403 });
+    }
+    return response;
   }
 
   // Check group write operations (PATCH)

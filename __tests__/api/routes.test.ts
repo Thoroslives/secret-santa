@@ -151,6 +151,7 @@ import { generateDraw } from '@/lib/secret-santa';
 import { POST as createGroup } from '@/app/api/groups/create/route';
 import { POST as verifyGroup } from '@/app/api/groups/verify/route';
 import { GET as getGroup, PATCH as patchGroup } from '@/app/api/groups/[id]/route';
+import { GET as listGroups } from '@/app/api/groups/route';
 import { GET as personalLinkLogin } from '@/app/p/[token]/route';
 import { POST as emailLink } from '@/app/api/auth/email-link/route';
 import { GET as getPeople, POST as createPerson } from '@/app/api/people/route';
@@ -213,26 +214,36 @@ beforeEach(() => {
 describe('POST /api/groups/create', () => {
   const url = 'http://localhost:3000/api/groups/create';
 
+  // P4-A4: group creation is an admin-only action (no public sign-up), gated
+  // on the single super-admin session - not a per-group password anymore.
+  it('returns 403 for an anonymous session', async () => {
+    const req = makePostRequest(url, { groupName: 'Test Group' });
+    const res = await createGroup(req);
+    expect(res.status).toBe(403);
+    expect(mockPrismaDb.group.create).not.toHaveBeenCalled();
+  });
+
+  it('returns 403 for a participant (non-admin) session', async () => {
+    mockSession.isLoggedIn = true;
+    mockSession.personId = 'p-1';
+    mockSession.groupId = 'group-1';
+    const req = makePostRequest(url, { groupName: 'Test Group' });
+    const res = await createGroup(req);
+    expect(res.status).toBe(403);
+    expect(mockPrismaDb.group.create).not.toHaveBeenCalled();
+  });
+
   it('returns 400 when group name is missing', async () => {
-    const req = makePostRequest(url, { groupName: '', adminPassword: 'password123' });
+    mockSession.isAdmin = true;
+    const req = makePostRequest(url, { groupName: '' });
     const res = await createGroup(req);
     expect(res.status).toBe(400);
     const json = await res.json();
     expect(json.error).toBe('Group name is required');
   });
 
-  it('returns 400 when admin password is too short', async () => {
-    // lib/password.ts's validatePassword() requires 12+ chars (with upper/lower/digit);
-    // this test predates that policy and asserted the old 6-char message. Corrected to
-    // match the password policy the route has actually enforced all along.
-    const req = makePostRequest(url, { groupName: 'Test Group', adminPassword: '12345' });
-    const res = await createGroup(req);
-    expect(res.status).toBe(400);
-    const json = await res.json();
-    expect(json.error).toBe('Password must be at least 12 characters long');
-  });
-
-  it('returns 201 on successful group creation', async () => {
+  it('returns 201 on successful group creation with no password required', async () => {
+    mockSession.isAdmin = true;
     mockPrismaDb.group.findUnique.mockResolvedValue(null); // invite code doesn't exist
     mockPrismaDb.group.create.mockResolvedValue({
       id: 'group-1',
@@ -241,8 +252,9 @@ describe('POST /api/groups/create', () => {
       year: 2026,
     });
 
-    // Must satisfy validatePassword(): 12+ chars, upper + lower + digit.
-    const req = makePostRequest(url, { groupName: 'Test Group', adminPassword: 'Password1234' });
+    // No adminPassword field at all - P4-A4 dropped the per-group password
+    // entirely from group creation.
+    const req = makePostRequest(url, { groupName: 'Test Group' });
     const res = await createGroup(req);
     expect(res.status).toBe(201);
 
@@ -255,8 +267,6 @@ describe('POST /api/groups/create', () => {
     });
 
     expect(generateGroupInviteCode).toHaveBeenCalled();
-    // P4-A1 removed AdminConfig/bcrypt entirely - adminPassword is validated
-    // for API-contract compatibility but never hashed or persisted anymore.
     expect(mockPrismaDb.group.create).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({ name: 'Test Group', inviteCode: 'ABC123' }),
@@ -2658,6 +2668,45 @@ describe('/api/suggestions', () => {
       const res = await deleteSuggestion(makeDeleteRequest(url + '?id=sug-1'));
       expect(res.status).toBe(200);
       expect(mockPrismaDb.suggestion.delete).toHaveBeenCalledWith({ where: { id: 'sug-1' } });
+    });
+  });
+});
+
+// ===========================================================================
+// GET /api/groups (admin-only list, feeds the admin dashboard group picker)
+// ===========================================================================
+describe('GET /api/groups', () => {
+  it('returns 403 for an anonymous session', async () => {
+    const res = await listGroups();
+    expect(res.status).toBe(403);
+    expect(mockPrismaDb.group.findMany).not.toHaveBeenCalled();
+  });
+
+  it('returns 403 for a participant (non-admin) session', async () => {
+    mockSession.isLoggedIn = true;
+    mockSession.personId = 'p-1';
+    mockSession.groupId = 'group-1';
+    const res = await listGroups();
+    expect(res.status).toBe(403);
+    expect(mockPrismaDb.group.findMany).not.toHaveBeenCalled();
+  });
+
+  it('returns the group list ordered by name for an admin', async () => {
+    mockSession.isAdmin = true;
+    const groups = [
+      { id: 'group-1', name: 'Alpha Group', year: 2026 },
+      { id: 'group-2', name: 'Beta Group', year: 2026 },
+    ];
+    mockPrismaDb.group.findMany.mockResolvedValue(groups);
+
+    const res = await listGroups();
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json).toEqual(groups);
+
+    expect(mockPrismaDb.group.findMany).toHaveBeenCalledWith({
+      select: { id: true, name: true, year: true },
+      orderBy: { name: 'asc' },
     });
   });
 });

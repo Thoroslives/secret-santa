@@ -1,22 +1,17 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { generateGroupInviteCode } from "@/lib/utils";
-import { validatePassword } from "@/lib/password";
+import { requireAdmin } from "@/lib/admin";
 
 export async function POST(request: NextRequest) {
   try {
-    const { groupName, adminPassword, year } = await request.json();
+    const forbidden = await requireAdmin();
+    if (forbidden) return forbidden;
+
+    const { groupName, year } = await request.json();
 
     if (!groupName || groupName.trim().length === 0) {
       return NextResponse.json({ error: "Group name is required" }, { status: 400 });
-    }
-
-    const passwordValidation = validatePassword(adminPassword);
-    if (!passwordValidation.valid) {
-      return NextResponse.json(
-        { error: passwordValidation.error },
-        { status: 400 }
-      );
     }
 
     // Generate unique invite code
@@ -29,9 +24,8 @@ export async function POST(request: NextRequest) {
       exists = await prisma.group.findUnique({ where: { inviteCode } });
     }
 
-    // Create group
-    // P4-A3: adminPassword is still validated above for API-contract compatibility,
-    // but no longer persisted - AdminConfig is gone, single super-admin auth lands next task.
+    // Create group. P4-A4: no per-group password anymore - creation is
+    // gated to the single super-admin (requireAdmin above), not a password.
     const group = await prisma.group.create({
       data: {
         name: groupName.trim(),
