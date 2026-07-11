@@ -1,14 +1,14 @@
 # Secret Santa - Multi-Tenant Gift Exchange Platform
 
-A free, self-hosted web application for managing Secret Santa gift exchanges. Perfect for families, friend groups, and communities worldwide. Features multi-tenancy, unique login codes, wishlist management, and automated Secret Santa partner assignments.
+A free, self-hosted web application for managing Secret Santa gift exchanges. Perfect for families, friend groups, and communities worldwide. Features multi-tenancy, durable personal login links, wishlist management, and automated Secret Santa partner assignments.
 
 ## Features
 
 - **Multi-Tenant**: Unlimited groups can use the same installation
-- **Group Creation**: Anyone can create a new Secret Santa group
+- **Group Creation**: Admin-only - a single super-admin creates and manages every group (no public sign-up)
 - **Invite Codes**: Share a 6-character code to invite people to your group
-- **Admin Portal**: Manage participants, generate login codes, and create Secret Santa assignments
-- **User Login**: Simple code-based authentication (no user accounts needed)
+- **Admin Portal**: Manage participants, send personal login links, and create Secret Santa assignments
+- **User Login**: Durable personal link (`/p/<token>`) with self-service email resend - no user accounts needed
 - **Wishlist Management**: Each person can add 1-5 gift items with links
 - **Secret Santa Assignments**: Automated partner generation ensuring valid assignments
 - **Mobile Responsive**: Works great on phones, tablets, and desktops
@@ -17,9 +17,9 @@ A free, self-hosted web application for managing Secret Santa gift exchanges. Pe
 ## Tech Stack
 
 - **Framework**: Next.js 14 (App Router) with TypeScript
-- **Database**: PostgreSQL with Prisma ORM
+- **Database**: SQLite (single file) with Prisma ORM
 - **Styling**: Tailwind CSS
-- **Authentication**: Code-based (no user accounts)
+- **Authentication**: Durable personal link for participants; single super-admin (OIDC + break-glass) for admin
 - **Deployment**: Docker & Docker Compose
 
 ## Getting Started
@@ -28,7 +28,7 @@ A free, self-hosted web application for managing Secret Santa gift exchanges. Pe
 
 **For Development:**
 - Node.js 18+ installed
-- PostgreSQL database OR Docker
+- SQLite (bundled, no external DB server) OR Docker
 
 **For Production (Easiest):**
 - Docker and Docker Compose
@@ -56,8 +56,9 @@ That's it! See [DEPLOYMENT.md](DEPLOYMENT.md) for production deployment.
 
    Update `.env`:
    ```
-   DATABASE_URL="postgresql://username:password@localhost:5432/secret_santa?schema=public"
+   DATABASE_URL="file:./dev.db"
    ```
+   SQLite is a single file - no external database server to install or configure.
 
 3. **Run database migrations**
    ```bash
@@ -81,14 +82,14 @@ That's it! See [DEPLOYMENT.md](DEPLOYMENT.md) for production deployment.
 ### For Admins
 
 1. Go to `/admin` and login with your admin password
-2. Add family members to the system (each gets a unique login code)
-3. Share the login codes with each person
+2. Add family members to the system (each gets a durable personal login link)
+3. Share each person's personal link with them (or trigger the self-service email resend from `/login`)
 4. Once everyone has added their wishlist, click "Generate Assignments" to create Secret Santa pairs
 5. View all assignments to verify everything worked
 
 ### For Participants
 
-1. Go to `/login` and enter your unique login code
+1. Visit your personal link (`/p/<token>`), or go to `/login` to request one by email
 2. Add 3-5 items to your wishlist with links
 3. Save your wishlist
 4. View your Secret Santa assignment to see who you're buying for
@@ -96,10 +97,9 @@ That's it! See [DEPLOYMENT.md](DEPLOYMENT.md) for production deployment.
 
 ## Database Schema
 
-- **Person**: Stores participant information and login codes
+- **Person**: Stores participant information and personal link tokens
 - **WishlistItem**: Stores gift items for each person
 - **Assignment**: Tracks who gives to whom each year
-- **AdminConfig**: Stores admin password (hashed)
 
 ## Secret Santa Algorithm
 
@@ -203,16 +203,15 @@ npm run build
 npm start
 ```
 
-Deploy to platforms like:
-- Vercel (recommended for Next.js)
-- Railway
-- Heroku
-- DigitalOcean App Platform
+This app is self-hosted: a single Docker container with a mounted SQLite
+volume is the supported deployment path - see "Deploy Notes (Docker)"
+above. `npm run build && npm start` also works directly on a host with
+Node.js installed (e.g. bare-metal or a VM), without Docker.
 
 ## Security Notes
 
-- Admin password is hashed using bcrypt
-- Login codes are randomly generated and unique
+- Break-glass admin password is checked with a constant-time comparison against `ADMIN_BREAKGLASS_PASSWORD` (env var only, no DB storage)
+- Personal link tokens are randomly generated and unique
 - No sensitive data is exposed to users
 - Session data stored in browser sessionStorage (cleared on logout)
 
@@ -220,7 +219,7 @@ Deploy to platforms like:
 
 ### Database Connection Issues
 
-Make sure your PostgreSQL server is running and the DATABASE_URL in `.env` is correct.
+SQLite is a single file - make sure the DATABASE_URL in `.env` points to a writable path (in Docker, the `/data` volume must be mounted and writable).
 
 ### Prisma Client Not Found
 

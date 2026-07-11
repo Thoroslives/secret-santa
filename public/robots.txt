@@ -1,6 +1,5 @@
 User-agent: *
 Allow: /
-Allow: /create
 Allow: /join
 Allow: /login
 Allow: /pricing

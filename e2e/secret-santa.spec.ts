@@ -6,13 +6,9 @@ test.describe("Home Page", () => {
     await expect(page).toHaveTitle(/Secret Santa/);
   });
 
-  test('has "Create New Group" and "Join Existing Group" links', async ({
-    page,
-  }) => {
+  test('has a "Join Existing Group" link', async ({ page }) => {
     await page.goto("/");
-    const createLink = page.getByRole("link", { name: /Create New Group/i });
     const joinLink = page.getByRole("link", { name: /Join Existing Group/i });
-    await expect(createLink).toBeVisible();
     await expect(joinLink).toBeVisible();
   });
 
@@ -26,12 +22,7 @@ test.describe("Home Page", () => {
   test("navigation links work", async ({ page }) => {
     await page.goto("/");
 
-    // Click Create New Group link
-    await page.getByRole("link", { name: /Create New Group/i }).first().click();
-    await expect(page).toHaveURL(/\/create/);
-
-    // Go back and click Join Existing Group
-    await page.goto("/");
+    // Click Join Existing Group link
     await page
       .getByRole("link", { name: /Join Existing Group/i })
       .first()
@@ -52,84 +43,11 @@ test.describe("Home Page", () => {
   });
 });
 
-test.describe("Create Group Flow", () => {
-  test("shows create group form", async ({ page }) => {
-    await page.goto("/create");
-    await expect(
-      page.getByRole("heading", { name: /Create Your Group/i })
-    ).toBeVisible();
-    await expect(page.getByLabel(/Group Name/i)).toBeVisible();
-    await expect(page.getByLabel(/^Year$/i)).toBeVisible();
-    await expect(page.getByLabel(/^Admin Password$/i)).toBeVisible();
-    await expect(page.getByLabel(/Confirm Password/i)).toBeVisible();
-    await expect(
-      page.getByRole("button", { name: /Create Group/i })
-    ).toBeVisible();
-  });
-
-  test("shows validation error when passwords do not match", async ({
-    page,
-  }) => {
-    await page.goto("/create");
-    await page.getByLabel(/Group Name/i).fill("Test Family");
-    // Both passwords must clear the 12-char minlength on the field itself so
-    // the browser lets the form submit through to the app's own JS check.
-    await page.getByLabel(/^Admin Password$/i).fill("SecurePass123");
-    await page.getByLabel(/Confirm Password/i).fill("DifferentPass456");
-    await page.getByRole("button", { name: /Create Group/i }).click();
-    await expect(page.getByText(/Passwords do not match/i)).toBeVisible();
-  });
-
-  test("admin password enforces a 12-character minimum before submit", async ({
-    page,
-  }) => {
-    await page.goto("/create");
-    const pwField = page.getByLabel(/^Admin Password$/i);
-    await expect(pwField).toHaveAttribute("minlength", "12");
-
-    await page.getByLabel(/Group Name/i).fill("Test Family");
-    await pwField.fill("short1");
-    await page.getByLabel(/Confirm Password/i).fill("short1");
-    await page.getByRole("button", { name: /Create Group/i }).click();
-
-    // Native minlength validation blocks the submit before it reaches the
-    // app's JS, so the form never navigates away.
-    await expect(page).toHaveURL(/\/create/);
-  });
-
-  test("has back to home link", async ({ page }) => {
-    await page.goto("/create");
-    await expect(page.getByRole("link", { name: /Back to Home/i })).toBeVisible();
-  });
-
-  test("fills in form and submits", async ({ page }) => {
-    await page.goto("/create");
-    await page.getByLabel(/Group Name/i).fill("E2E Test Family");
-    await page.getByLabel(/^Year$/i).fill("2026");
-    await page.getByLabel(/^Admin Password$/i).fill("testpassword123");
-    await page.getByLabel(/Confirm Password/i).fill("testpassword123");
-
-    // Mock the API response so we don't need a real backend
-    await page.route("**/api/groups/create", async (route) => {
-      await route.fulfill({
-        status: 200,
-        contentType: "application/json",
-        body: JSON.stringify({
-          group: {
-            id: "test-group-id",
-            name: "E2E Test Family",
-            inviteCode: "ABC123",
-          },
-        }),
-      });
-    });
-
-    await page.getByRole("button", { name: /Create Group/i }).click();
-
-    // Should redirect to admin page
-    await expect(page).toHaveURL(/\/admin/);
-  });
-});
+// Note: the public "Create Group Flow" describe block that used to live here
+// was removed with app/create/page.tsx (P4 followups, loose end 2b) - group
+// creation is admin-only via the dashboard now (B4), already covered by the
+// POST /api/groups/create tests in __tests__/api/routes.test.ts and by the
+// "Full Flow" admin-login-to-dashboard test below.
 
 test.describe("Join Group Flow", () => {
   test("shows join group form", async ({ page }) => {
@@ -405,13 +323,6 @@ test.describe("Admin Portal Login", () => {
 });
 
 test.describe("Error Handling", () => {
-  test("create form group name field is required", async ({ page }) => {
-    await page.goto("/create");
-    // The HTML required attribute prevents submission with an empty name.
-    const groupNameInput = page.getByLabel(/Group Name/i);
-    await expect(groupNameInput).toHaveAttribute("required", "");
-  });
-
   test("join form shows error with invalid code", async ({ page }) => {
     await page.goto("/join");
 
@@ -433,55 +344,13 @@ test.describe("Error Handling", () => {
     // The page checks /api/auth/session; with no session cookie it redirects home.
     await expect(page).toHaveURL("/");
   });
-
-  test("create form handles API errors gracefully", async ({ page }) => {
-    await page.goto("/create");
-    await page.getByLabel(/Group Name/i).fill("Test Group");
-    await page.getByLabel(/^Admin Password$/i).fill("password12345");
-    await page.getByLabel(/Confirm Password/i).fill("password12345");
-
-    await page.route("**/api/groups/create", async (route) => {
-      await route.fulfill({
-        status: 500,
-        contentType: "application/json",
-        body: JSON.stringify({ error: "Internal server error" }),
-      });
-    });
-
-    await page.getByRole("button", { name: /Create Group/i }).click();
-    await expect(page.getByText(/Internal server error/i)).toBeVisible();
-  });
 });
 
 test.describe("Full Flow (with mocked API)", () => {
-  test("create group -> admin login -> view dashboard", async ({ page }) => {
-    // Step 1: Create a group
-    await page.goto("/create");
-
-    await page.route("**/api/groups/create", async (route) => {
-      await route.fulfill({
-        status: 200,
-        contentType: "application/json",
-        body: JSON.stringify({
-          group: {
-            id: "flow-test-group",
-            name: "Flow Test Family",
-            inviteCode: "FLW123",
-          },
-        }),
-      });
-    });
-
-    await page.getByLabel(/Group Name/i).fill("Flow Test Family");
-    await page.getByLabel(/^Year$/i).fill("2026");
-    await page.getByLabel(/^Admin Password$/i).fill("securepass123");
-    await page.getByLabel(/Confirm Password/i).fill("securepass123");
-    await page.getByRole("button", { name: /Create Group/i }).click();
-
-    // Should redirect to admin login
-    await expect(page).toHaveURL(/\/admin/);
-
-    // Step 2: Admin login
+  test("admin login -> view dashboard", async ({ page }) => {
+    // Group creation is admin-only via the dashboard now (P4-B4, no public
+    // /create page) - already covered by the POST /api/groups/create tests
+    // in __tests__/api/routes.test.ts. This flow starts at admin login.
     await page.route("**/api/admin/auth", async (route) => {
       await route.fulfill({
         status: 200,
@@ -526,6 +395,7 @@ test.describe("Full Flow (with mocked API)", () => {
       });
     });
 
+    await page.goto("/admin");
     await expect(
       page.getByRole("heading", { name: /Admin Portal/i })
     ).toBeVisible();

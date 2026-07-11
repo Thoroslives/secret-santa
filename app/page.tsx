@@ -42,20 +42,6 @@ export default function Home() {
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6 max-w-2xl mx-auto mb-6">
               <Link
-                href="/create"
-                className="group bg-gradient-to-br from-santa-green to-santa-green-dark p-8 rounded-2xl card-glow transition-all duration-300 hover:scale-105"
-              >
-                <div className="text-5xl mb-4">🎄</div>
-                <h2 className="text-2xl font-bold text-white mb-2">Create New Group</h2>
-                <p className="text-green-100 mb-3 text-sm">
-                  Start a new Secret Santa event for your family, friends, or coworkers
-                </p>
-                <span className="text-santa-gold font-semibold group-hover:underline">
-                  Get Started &rarr;
-                </span>
-              </Link>
-
-              <Link
                 href="/join"
                 className="group bg-gradient-to-br from-santa-red to-santa-red-dark p-8 rounded-2xl card-glow transition-all duration-300 hover:scale-105"
               >
@@ -114,7 +100,6 @@ export default function Home() {
       <footer className="bg-[#0F0F1E] py-12 border-t border-white/5">
         <div className="container mx-auto px-4">
           <nav aria-label="Footer navigation" className="flex flex-wrap justify-center gap-6 mb-6">
-            <Link href="/create" className="text-gray-400 hover:text-santa-gold transition-colors text-sm">Create Group</Link>
             <Link href="/join" className="text-gray-400 hover:text-santa-gold transition-colors text-sm">Join Group</Link>
             <Link href="/login" className="text-gray-400 hover:text-santa-gold transition-colors text-sm">Participant Login</Link>
           </nav>
