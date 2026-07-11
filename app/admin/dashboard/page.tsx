@@ -32,6 +32,7 @@ export default function AdminDashboard() {
   const [successMessage, setSuccessMessage] = useState("");
   const [shareLinks, setShareLinks] = useState<{ name: string; link: string }[]>([]);
   const [groupInfo, setGroupInfo] = useState({ id: "", name: "", inviteCode: "" });
+  const [activeYear, setActiveYear] = useState<number | null>(null);
   const [budget, setBudget] = useState<GroupBudget>({ budgetAmount: undefined, budgetCurrency: "USD" });
   const [budgetAmount, setBudgetAmount] = useState("");
   const [budgetCurrency, setBudgetCurrency] = useState("USD");
@@ -81,6 +82,7 @@ export default function AdminDashboard() {
         });
         setBudgetAmount(groupData.group.budgetAmount?.toString() || "");
         setBudgetCurrency(groupData.group.budgetCurrency || "USD");
+        setActiveYear(groupData.group.year);
       }
 
       setLoading(false);
@@ -207,6 +209,41 @@ export default function AdminDashboard() {
       setSuccessMessage(
         `Matches sent (${data.sent} emailed, ${data.failed} could not be emailed). Share the personal links below with anyone who has no email.`
       );
+    } catch (err) {
+      setError("An error occurred");
+    }
+  };
+
+  const handleRollover = async () => {
+    const next = (activeYear ?? new Date().getFullYear()) + 1;
+    if (
+      !confirm(
+        `Start ${next}? This year's matches move to history and everyone's wishlists reset. Past pairs stay viewable. Continue?`
+      )
+    ) {
+      return;
+    }
+
+    setError("");
+    setSuccessMessage("");
+
+    try {
+      const res = await fetch("/api/rounds/rollover", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ groupId: groupInfo.id }),
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        setError(data.error || "Failed to start next year");
+        return;
+      }
+
+      setShareLinks([]);
+      setSuccessMessage(`Started ${data.year}. Wishlists have been reset for the new year.`);
+      loadData(groupInfo.id);
     } catch (err) {
       setError("An error occurred");
     }
@@ -466,6 +503,17 @@ export default function AdminDashboard() {
               {people.length < 3 && (
                 <p className="text-sm text-santa-red">Need at least 3 people to generate assignments</p>
               )}
+              <div className="pt-4 mt-4 border-t border-white/10">
+                <button
+                  onClick={handleRollover}
+                  className="w-full bg-white/10 text-santa-snow py-2 rounded-xl font-semibold hover:bg-white/20 transition border border-white/10"
+                >
+                  Start next year
+                </button>
+                <p className="text-xs text-gray-500 mt-2">
+                  Moves this year&apos;s matches to history and resets everyone&apos;s wishlist for the new year.
+                </p>
+              </div>
               {shareLinks.length > 0 && (
                 <div className="mt-4 text-sm text-gray-300">
                   <p className="font-semibold text-santa-snow mb-1">Personal links (copy to share manually):</p>

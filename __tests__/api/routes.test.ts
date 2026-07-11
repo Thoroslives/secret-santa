@@ -48,6 +48,7 @@ const mockPrismaDb = {
     findUnique: jest.fn(),
     update: jest.fn(),
     updateMany: jest.fn(),
+    upsert: jest.fn(),
   },
   $transaction: jest.fn(),
   $disconnect: jest.fn(),
@@ -170,6 +171,7 @@ import { POST as createBlock, DELETE as deleteBlock } from '@/app/api/blocks/rou
 import { POST as createPin, DELETE as deletePin } from '@/app/api/pins/route';
 import { POST as generateRound } from '@/app/api/rounds/generate/route';
 import { POST as sendRound } from '@/app/api/rounds/send/route';
+import { POST as rolloverRound } from '@/app/api/rounds/rollover/route';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -1482,6 +1484,111 @@ describe('POST /api/rounds/send', () => {
   it('refuses to revert a round that is not sent', async () => {
     mockPrismaDb.round.findUnique.mockResolvedValue(generatedRound);
     expect((await sendRound(makePostRequest(url + '?revert=1', { groupId: 'group-1' }))).status).toBe(400);
+  });
+});
+
+// ===========================================================================
+// POST /api/rounds/rollover - one-click "Start next year": advance the
+// active-year pointer, materialize next year's round, wipe this year's
+// wishlists. Roster/tokens (Person) and blocks (group-scoped) carry forward
+// untouched; assignments/rounds/suggestions stay round-scoped history.
+// ===========================================================================
+describe('POST /api/rounds/rollover', () => {
+  const url = 'http://localhost:3000/api/rounds/rollover';
+  const people = [{ id: 'p-1' }, { id: 'p-2' }, { id: 'p-3' }];
+
+  beforeEach(() => {
+    mockSession.isAdmin = true;
+    mockSession.adminGroupId = 'group-1';
+    (getActiveYear as jest.Mock).mockResolvedValue(2026);
+    mockPrismaDb.round.findUnique.mockResolvedValue(null);
+    mockPrismaDb.person.findMany.mockResolvedValue(people);
+    mockPrismaDb.$transaction.mockResolvedValue([]);
+  });
+
+  it('returns 400 when groupId is missing', async () => {
+    const res = await rolloverRound(makePostRequest(url, {}));
+    expect(res.status).toBe(400);
+  });
+
+  it('returns 403 for a non-admin', async () => {
+    delete mockSession.isAdmin;
+    const res = await rolloverRound(makePostRequest(url, { groupId: 'group-1' }));
+    expect(res.status).toBe(403);
+  });
+
+  it('returns 403 when the admin does not own the group', async () => {
+    mockSession.adminGroupId = 'other-group';
+    const res = await rolloverRound(makePostRequest(url, { groupId: 'group-1' }));
+    expect(res.status).toBe(403);
+  });
+
+  it('rejects when the current round has an unsent draw (status generated)', async () => {
+    mockPrismaDb.round.findUnique.mockResolvedValue({ id: 'round-1', status: 'generated' });
+    const res = await rolloverRound(makePostRequest(url, { groupId: 'group-1' }));
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toMatch(/unsent draw for 2026/i);
+    expect(mockPrismaDb.$transaction).not.toHaveBeenCalled();
+    expect(mockPrismaDb.person.findMany).not.toHaveBeenCalled();
+  });
+
+  it('allows rollover when the current round is still a draft (nothing generated)', async () => {
+    mockPrismaDb.round.findUnique.mockResolvedValue({ id: 'round-1', status: 'draft' });
+    const res = await rolloverRound(makePostRequest(url, { groupId: 'group-1' }));
+    expect(res.status).toBe(200);
+  });
+
+  it('allows rollover when the current round is already sent', async () => {
+    mockPrismaDb.round.findUnique.mockResolvedValue({ id: 'round-1', status: 'sent' });
+    const res = await rolloverRound(makePostRequest(url, { groupId: 'group-1' }));
+    expect(res.status).toBe(200);
+  });
+
+  it('allows rollover when there is no round at all yet', async () => {
+    mockPrismaDb.round.findUnique.mockResolvedValue(null);
+    const res = await rolloverRound(makePostRequest(url, { groupId: 'group-1' }));
+    expect(res.status).toBe(200);
+  });
+
+  it('advances the year, upserts next round, and wipes wishlists scoped to the group person ids', async () => {
+    const res = await rolloverRound(makePostRequest(url, { groupId: 'group-1' }));
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ year: 2027 });
+
+    // guard checked the CURRENT year's round, not next year's
+    expect(mockPrismaDb.round.findUnique).toHaveBeenCalledWith({
+      where: { groupId_year: { groupId: 'group-1', year: 2026 } },
+    });
+
+    // person ids resolved outside the transaction, scoped to the group
+    expect(mockPrismaDb.person.findMany).toHaveBeenCalledWith({
+      where: { groupId: 'group-1' },
+      select: { id: true },
+    });
+
+    // transaction composed of exactly: wipe wishlists for those people,
+    // upsert next round, advance Group.year
+    expect(mockPrismaDb.wishlistItem.deleteMany).toHaveBeenCalledWith({
+      where: { personId: { in: ['p-1', 'p-2', 'p-3'] } },
+    });
+    expect(mockPrismaDb.round.upsert).toHaveBeenCalledWith({
+      where: { groupId_year: { groupId: 'group-1', year: 2027 } },
+      update: {},
+      create: { groupId: 'group-1', year: 2027 },
+    });
+    expect(mockPrismaDb.group.update).toHaveBeenCalledWith({
+      where: { id: 'group-1' },
+      data: { year: 2027 },
+    });
+    expect(mockPrismaDb.$transaction).toHaveBeenCalledTimes(1);
+  });
+
+  it('ignores a client-supplied year and resolves the active year server-side', async () => {
+    const res = await rolloverRound(makePostRequest(url, { groupId: 'group-1', year: 1999 }));
+    expect(await res.json()).toEqual({ year: 2027 });
+    expect(mockPrismaDb.round.upsert).toHaveBeenCalledWith(
+      expect.objectContaining({ create: { groupId: 'group-1', year: 2027 } })
+    );
   });
 });
 
