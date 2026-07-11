@@ -10,13 +10,19 @@ interface LoginFormProps {
 
 // Fixed enum the OIDC callback redirects with on failure (see
 // app/api/admin/oidc/{login,callback}/route.ts) - never render the raw
-// ?error= value, only these mapped, known-safe messages.
-const ERROR_MESSAGES: Record<string, string> = {
-  oidc_unavailable: "Sign-in with NorthAuth is unavailable right now.",
-  not_authorized: "That account is not allowed to administer this app.",
-  oidc_failed: "Sign-in failed. Please try again.",
-  oidc_state: "Your sign-in session expired. Please try again.",
-};
+// ?error= value, only these mapped, known-safe messages. A Map (not a plain
+// object) is deliberate and must stay one: errorParam is attacker-controlled
+// query-string input, and an object lookup like ERROR_MESSAGES["__proto__"]
+// or ["constructor"] resolves up the prototype chain to a truthy value that
+// React then tries to render as a child ("Objects are not valid as a React
+// child") -> HTTP 500 for any unauthed visitor. Map.get() only ever returns
+// a real entry or undefined, so unknown input reliably shows no error.
+const ERROR_MESSAGES = new Map<string, string>([
+  ["oidc_unavailable", "Sign-in with NorthAuth is unavailable right now."],
+  ["not_authorized", "That account is not allowed to administer this app."],
+  ["oidc_failed", "Sign-in failed. Please try again."],
+  ["oidc_state", "Your sign-in session expired. Please try again."],
+]);
 
 export default function LoginForm({ enabled, breakGlass }: LoginFormProps) {
   const router = useRouter();
@@ -41,7 +47,7 @@ export default function LoginForm({ enabled, breakGlass }: LoginFormProps) {
   }
 
   const errorParam = searchParams.get("error");
-  const oidcError = errorParam ? ERROR_MESSAGES[errorParam] : undefined;
+  const oidcError = errorParam ? ERROR_MESSAGES.get(errorParam) : undefined;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();

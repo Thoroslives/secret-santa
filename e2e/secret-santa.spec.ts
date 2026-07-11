@@ -370,6 +370,27 @@ test.describe("Admin Portal Login", () => {
     await page.goto("/admin?error=totally_bogus_value_xyz");
     await expect(page.getByText(/totally_bogus_value_xyz/i)).toHaveCount(0);
   });
+
+  test("does not 500 or show an error on prototype-chain ?error= payloads", async ({
+    page,
+  }) => {
+    // A plain-object lookup keyed by these inherited names resolves up the
+    // prototype chain to a truthy value (Object.prototype, the constructor
+    // fn, etc.), which React then tries to render as a child and throws
+    // "Objects are not valid as a React child" -> HTTP 500. Any unauthed
+    // visitor can trigger it; ?error= is attacker-controlled. The Map lookup
+    // returns undefined for all of them, honoring the "unknown -> no error"
+    // contract.
+    for (const payload of ["__proto__", "constructor", "hasOwnProperty"]) {
+      const response = await page.goto(`/admin?error=${payload}`);
+      expect(response?.status()).toBe(200);
+      await expect(
+        page.getByRole("heading", { name: /Admin Portal/i })
+      ).toBeVisible();
+      // No error banner, and the raw payload is never reflected either.
+      await expect(page.getByText(new RegExp(payload, "i"))).toHaveCount(0);
+    }
+  });
 });
 
 test.describe("Error Handling", () => {
