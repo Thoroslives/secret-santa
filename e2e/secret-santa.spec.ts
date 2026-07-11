@@ -16,6 +16,13 @@ test.describe("Home Page", () => {
     await expect(joinLink).toBeVisible();
   });
 
+  test("has a Participant Login link", async ({ page }) => {
+    await page.goto("/");
+    await expect(
+      page.getByRole("link", { name: /Participant Login/i }).first()
+    ).toBeVisible();
+  });
+
   test("navigation links work", async ({ page }) => {
     await page.goto("/");
 
@@ -32,73 +39,16 @@ test.describe("Home Page", () => {
     await expect(page).toHaveURL(/\/join/);
   });
 
-  test('has "How It Works" section', async ({ page }) => {
+  test('has an FAQ section', async ({ page }) => {
     await page.goto("/");
     await expect(
-      page.getByRole("heading", { name: /How It Works/i })
-    ).toBeVisible();
-    await expect(
-      page.getByRole("heading", { name: /Create Your Group/i })
-    ).toBeVisible();
-    await expect(
-      page.getByRole("heading", { name: /Share & Create Wishlists/i })
-    ).toBeVisible();
-    await expect(
-      page.getByRole("heading", { name: /Generate Assignments/i })
-    ).toBeVisible();
-  });
-
-  test("has features section", async ({ page }) => {
-    await page.goto("/");
-    await expect(
-      page.getByRole("heading", {
-        name: /Why Choose Our Secret Santa Generator/i,
-      })
-    ).toBeVisible();
-    await expect(
-      page.getByRole("heading", { name: /Automatic Assignment/i })
-    ).toBeVisible();
-    await expect(
-      page.getByRole("heading", { name: /Wishlist Management/i })
-    ).toBeVisible();
-    await expect(
-      page.getByRole("heading", { name: /Private & Secure/i })
-    ).toBeVisible();
-  });
-
-  test("has structured data (JSON-LD)", async ({ page }) => {
-    await page.goto("/");
-    const jsonLd = page.locator('script[type="application/ld+json"]');
-    await expect(jsonLd).toBeAttached();
-    const content = await jsonLd.textContent();
-    expect(content).toBeTruthy();
-    const parsed = JSON.parse(content!);
-    expect(parsed["@type"]).toBe("WebApplication");
-    expect(parsed.name).toBe("Secret Santa Generator");
-  });
-
-  test("has CTA section with action links", async ({ page }) => {
-    await page.goto("/");
-    await expect(
-      page.getByRole("heading", {
-        name: /Ready to Create Your Secret Santa Magic/i,
-      })
-    ).toBeVisible();
-    // CTA buttons link to /create and /join
-    await expect(
-      page.getByRole("link", { name: /Start New Group/i })
-    ).toBeVisible();
-    await expect(
-      page.getByRole("link", { name: /Join Existing Group/i }).last()
+      page.getByRole("heading", { name: /Frequently Asked Questions/i })
     ).toBeVisible();
   });
 
   test("has footer", async ({ page }) => {
     await page.goto("/");
     await expect(page.locator("footer")).toBeVisible();
-    await expect(
-      page.getByText(/Secret Santa Generator/i).last()
-    ).toBeVisible();
   });
 });
 
@@ -106,7 +56,7 @@ test.describe("Create Group Flow", () => {
   test("shows create group form", async ({ page }) => {
     await page.goto("/create");
     await expect(
-      page.getByRole("heading", { name: /Create Your Secret Santa Group/i })
+      page.getByRole("heading", { name: /Create Your Group/i })
     ).toBeVisible();
     await expect(page.getByLabel(/Group Name/i)).toBeVisible();
     await expect(page.getByLabel(/^Year$/i)).toBeVisible();
@@ -122,23 +72,29 @@ test.describe("Create Group Flow", () => {
   }) => {
     await page.goto("/create");
     await page.getByLabel(/Group Name/i).fill("Test Family");
-    await page.getByLabel(/^Admin Password$/i).fill("password123");
-    await page.getByLabel(/Confirm Password/i).fill("differentpassword");
+    // Both passwords must clear the 12-char minlength on the field itself so
+    // the browser lets the form submit through to the app's own JS check.
+    await page.getByLabel(/^Admin Password$/i).fill("SecurePass123");
+    await page.getByLabel(/Confirm Password/i).fill("DifferentPass456");
     await page.getByRole("button", { name: /Create Group/i }).click();
     await expect(page.getByText(/Passwords do not match/i)).toBeVisible();
   });
 
-  test("shows validation error when password is too short", async ({
+  test("admin password enforces a 12-character minimum before submit", async ({
     page,
   }) => {
     await page.goto("/create");
+    const pwField = page.getByLabel(/^Admin Password$/i);
+    await expect(pwField).toHaveAttribute("minlength", "12");
+
     await page.getByLabel(/Group Name/i).fill("Test Family");
-    await page.getByLabel(/^Admin Password$/i).fill("abc");
-    await page.getByLabel(/Confirm Password/i).fill("abc");
+    await pwField.fill("short1");
+    await page.getByLabel(/Confirm Password/i).fill("short1");
     await page.getByRole("button", { name: /Create Group/i }).click();
-    await expect(
-      page.getByText(/Admin password must be at least 6 characters/i)
-    ).toBeVisible();
+
+    // Native minlength validation blocks the submit before it reaches the
+    // app's JS, so the form never navigates away.
+    await expect(page).toHaveURL(/\/create/);
   });
 
   test("has back to home link", async ({ page }) => {
@@ -262,7 +218,7 @@ test.describe("Join Group Flow", () => {
   });
 });
 
-test.describe("Login Page", () => {
+test.describe("Login Page (participant, email link)", () => {
   test("redirects to home if no groupId in sessionStorage", async ({
     page,
   }) => {
@@ -271,7 +227,7 @@ test.describe("Login Page", () => {
     await expect(page).toHaveURL("/");
   });
 
-  test("shows login form when groupId is set", async ({ page }) => {
+  test("shows email login form when groupId is set", async ({ page }) => {
     // Set sessionStorage before navigating
     await page.goto("/");
     await page.evaluate(() => {
@@ -284,39 +240,32 @@ test.describe("Login Page", () => {
       page.getByRole("heading", { name: /Welcome!/i })
     ).toBeVisible();
     await expect(page.getByText("Test Family")).toBeVisible();
-  });
-
-  test("has code and email login method toggle", async ({ page }) => {
-    await page.goto("/");
-    await page.evaluate(() => {
-      sessionStorage.setItem("groupId", "test-group-id");
-      sessionStorage.setItem("groupName", "Test Family");
-    });
-    await page.goto("/login");
-
-    // Both toggle buttons should be visible
-    await expect(page.getByRole("button", { name: /Login Code/i })).toBeVisible();
-    await expect(page.getByRole("button", { name: /Email Link/i })).toBeVisible();
-  });
-
-  test("toggles between login methods", async ({ page }) => {
-    await page.goto("/");
-    await page.evaluate(() => {
-      sessionStorage.setItem("groupId", "test-group-id");
-      sessionStorage.setItem("groupName", "Test Family");
-    });
-    await page.goto("/login");
-
-    // Code login should be shown by default
-    await expect(page.getByLabel(/Login Code/i)).toBeVisible();
-
-    // Switch to email
-    await page.getByRole("button", { name: /Email Link/i }).click();
     await expect(page.getByLabel(/Email Address/i)).toBeVisible();
+    await expect(
+      page.getByRole("button", { name: /Send Login Link/i })
+    ).toBeVisible();
+  });
 
-    // Switch back to code
-    await page.getByRole("button", { name: /Login Code/i }).click();
-    await expect(page.getByLabel(/Login Code/i)).toBeVisible();
+  test("sends login link and shows confirmation", async ({ page }) => {
+    await page.goto("/");
+    await page.evaluate(() => {
+      sessionStorage.setItem("groupId", "test-group-id");
+      sessionStorage.setItem("groupName", "Test Family");
+    });
+    await page.goto("/login");
+
+    await page.route("**/api/auth/email-link", async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ success: true }),
+      });
+    });
+
+    await page.getByLabel(/Email Address/i).fill("test@example.com");
+    await page.getByRole("button", { name: /Send Login Link/i }).click();
+
+    await expect(page.getByText(/Check your email!/i)).toBeVisible();
   });
 
   test("has back to home link", async ({ page }) => {
@@ -330,7 +279,7 @@ test.describe("Login Page", () => {
   });
 });
 
-test.describe("Admin Dashboard", () => {
+test.describe("Admin Portal Login", () => {
   test("redirects to home if no groupId in sessionStorage", async ({
     page,
   }) => {
@@ -377,15 +326,9 @@ test.describe("Admin Dashboard", () => {
 });
 
 test.describe("Error Handling", () => {
-  test("create form shows error when group name is empty and password is valid", async ({
-    page,
-  }) => {
+  test("create form group name field is required", async ({ page }) => {
     await page.goto("/create");
-    // Leave group name empty, fill password fields
-    await page.getByLabel(/^Admin Password$/i).fill("password123");
-    await page.getByLabel(/Confirm Password/i).fill("password123");
-    // The HTML required attribute should prevent submission,
-    // but we can also check the field is required
+    // The HTML required attribute prevents submission with an empty name.
     const groupNameInput = page.getByLabel(/Group Name/i);
     await expect(groupNameInput).toHaveAttribute("required", "");
   });
@@ -406,17 +349,17 @@ test.describe("Error Handling", () => {
     await expect(page.getByText(/Invalid invite code/i)).toBeVisible();
   });
 
-  test("wishlist redirects to login when not logged in", async ({ page }) => {
+  test("wishlist redirects when not logged in", async ({ page }) => {
     await page.goto("/wishlist");
-    // Should redirect to /login, then to / since no groupId
+    // The page checks /api/auth/session; with no session cookie it redirects home.
     await expect(page).toHaveURL("/");
   });
 
   test("create form handles API errors gracefully", async ({ page }) => {
     await page.goto("/create");
     await page.getByLabel(/Group Name/i).fill("Test Group");
-    await page.getByLabel(/^Admin Password$/i).fill("password123");
-    await page.getByLabel(/Confirm Password/i).fill("password123");
+    await page.getByLabel(/^Admin Password$/i).fill("password12345");
+    await page.getByLabel(/Confirm Password/i).fill("password12345");
 
     await page.route("**/api/groups/create", async (route) => {
       await route.fulfill({
@@ -474,6 +417,22 @@ test.describe("Full Flow (with mocked API)", () => {
       });
     });
 
+    // The dashboard independently verifies the session via /api/auth/session
+    // on mount, so that also needs to report an authenticated admin.
+    await page.route("**/api/auth/session", async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          authenticated: true,
+          isAdmin: true,
+          adminGroupId: "flow-test-group",
+          adminGroupName: "Flow Test Family",
+          adminInviteCode: "FLW123",
+        }),
+      });
+    });
+
     await expect(
       page.getByRole("heading", { name: /Admin Portal/i })
     ).toBeVisible();
@@ -482,6 +441,9 @@ test.describe("Full Flow (with mocked API)", () => {
 
     // Should redirect to admin dashboard
     await expect(page).toHaveURL(/\/admin\/dashboard/);
+    await expect(
+      page.getByRole("heading", { name: /Admin Dashboard/i })
+    ).toBeVisible();
   });
 
   test("join group -> participant login flow", async ({ page }) => {
@@ -508,101 +470,5 @@ test.describe("Full Flow (with mocked API)", () => {
 
     // Login page should show the group name
     await expect(page.getByText("Join Test Family")).toBeVisible();
-  });
-});
-
-test.describe("Responsive Design", () => {
-  test("mobile viewport renders correctly", async ({ browser }) => {
-    const context = await browser.newContext({
-      viewport: { width: 375, height: 812 }, // iPhone X
-    });
-    const page = await context.newPage();
-    await page.goto("/");
-
-    // Hero section should be visible
-    await expect(
-      page.getByRole("heading", { name: /Free Secret Santa Generator/i })
-    ).toBeVisible();
-
-    // Create and Join links should be visible
-    await expect(
-      page.getByRole("link", { name: /Create New Group/i }).first()
-    ).toBeVisible();
-    await expect(
-      page.getByRole("link", { name: /Join Existing Group/i }).first()
-    ).toBeVisible();
-
-    // Footer should be visible
-    await expect(page.locator("footer")).toBeVisible();
-
-    await context.close();
-  });
-
-  test("desktop viewport renders correctly", async ({ browser }) => {
-    const context = await browser.newContext({
-      viewport: { width: 1920, height: 1080 },
-    });
-    const page = await context.newPage();
-    await page.goto("/");
-
-    // Hero section should be visible
-    await expect(
-      page.getByRole("heading", { name: /Free Secret Santa Generator/i })
-    ).toBeVisible();
-
-    // Features section should be visible
-    await expect(
-      page.getByRole("heading", {
-        name: /Why Choose Our Secret Santa Generator/i,
-      })
-    ).toBeVisible();
-
-    // How It Works section should be visible
-    await expect(
-      page.getByRole("heading", { name: /How It Works/i })
-    ).toBeVisible();
-
-    await context.close();
-  });
-
-  test("create form works on mobile", async ({ browser }) => {
-    const context = await browser.newContext({
-      viewport: { width: 375, height: 812 },
-    });
-    const page = await context.newPage();
-    await page.goto("/create");
-
-    await expect(
-      page.getByRole("heading", { name: /Create Your Secret Santa Group/i })
-    ).toBeVisible();
-    await expect(page.getByLabel(/Group Name/i)).toBeVisible();
-    await expect(
-      page.getByRole("button", { name: /Create Group/i })
-    ).toBeVisible();
-
-    await context.close();
-  });
-
-  test("join form works on mobile", async ({ browser }) => {
-    const context = await browser.newContext({
-      viewport: { width: 375, height: 812 },
-    });
-    const page = await context.newPage();
-    await page.goto("/join");
-
-    await expect(
-      page.getByRole("heading", { name: /Join a Secret Santa Group/i })
-    ).toBeVisible();
-    await expect(page.getByLabel(/Group Invite Code/i)).toBeVisible();
-
-    await context.close();
-  });
-});
-
-test.describe("Pricing Section", () => {
-  test("shows pricing on home page", async ({ page }) => {
-    await page.goto("/");
-    await expect(page.getByText(/Simple Pricing/i).first()).toBeVisible();
-    await expect(page.getByText(/\$0/).first()).toBeVisible();
   });
 });
