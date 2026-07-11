@@ -14,11 +14,11 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: "Group ID is required" }, { status: 400 });
     }
 
-    // Verify the user has access to this group
-    if (session.isAdmin && session.adminGroupId !== groupId) {
-      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-    }
-    if (session.isLoggedIn && session.groupId !== groupId) {
+    // Admin-only: the response includes each person's durable
+    // `personalLinkToken`, which is a login credential (see app/p/[token]).
+    // A participant enumerating the roster would harvest everyone's tokens and
+    // could impersonate them, so only the group's own admin may list people.
+    if (!session.isAdmin || session.adminGroupId !== groupId) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 

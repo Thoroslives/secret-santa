@@ -47,6 +47,7 @@ const mockPrismaDb = {
   round: {
     findUnique: jest.fn(),
     update: jest.fn(),
+    updateMany: jest.fn(),
   },
   $transaction: jest.fn(),
   $disconnect: jest.fn(),
@@ -566,6 +567,11 @@ describe('POST /api/auth/email-link', () => {
 // 7. GET /api/people
 // ===========================================================================
 describe('GET /api/people', () => {
+  beforeEach(() => {
+    mockSession.isAdmin = true;
+    mockSession.adminGroupId = 'group-1';
+  });
+
   it('returns 400 when groupId is missing', async () => {
     const req = makeGetRequest('http://localhost:3000/api/people');
     const res = await getPeople(req);
@@ -574,7 +580,7 @@ describe('GET /api/people', () => {
     expect(json.error).toBe('Group ID is required');
   });
 
-  it('returns 200 with list of people', async () => {
+  it('returns 200 with list of people for the group admin', async () => {
     const people = [
       { id: 'p-1', name: 'Alice', wishlistItems: [], _count: { wishlistItems: 0 } },
       { id: 'p-2', name: 'Bob', wishlistItems: [], _count: { wishlistItems: 0 } },
@@ -589,6 +595,18 @@ describe('GET /api/people', () => {
     expect(mockPrismaDb.person.findMany).toHaveBeenCalledWith(
       expect.objectContaining({ where: { groupId: 'group-1' } }),
     );
+  });
+
+  it('forbids a participant listing people (would leak durable login tokens)', async () => {
+    delete mockSession.isAdmin;
+    delete mockSession.adminGroupId;
+    mockSession.isLoggedIn = true;
+    mockSession.personId = 'p-1';
+    mockSession.groupId = 'group-1';
+    const res = await getPeople(makeGetRequest('http://localhost:3000/api/people?groupId=group-1'));
+    expect(res.status).toBe(403);
+    // must NOT have queried the roster - no token exposure
+    expect(mockPrismaDb.person.findMany).not.toHaveBeenCalled();
   });
 });
 
@@ -963,14 +981,18 @@ describe('DELETE /api/assignments', () => {
     expect(json.error).toBe('Group ID is required');
   });
 
-  it('returns 200 on successful deletion', async () => {
+  it('deletes assignments AND resets the round to draft (avoids stranding a sent round)', async () => {
     mockPrismaDb.assignment.deleteMany.mockResolvedValue({ count: 3 });
+    mockPrismaDb.$transaction.mockResolvedValue([]);
 
     const req = makeDeleteRequest('http://localhost:3000/api/assignments?groupId=group-1');
     const res = await deleteAssignments(req);
     expect(res.status).toBe(200);
-    const json = await res.json();
-    expect(json.success).toBe(true);
+    expect((await res.json()).success).toBe(true);
+    // the round must be reset so a post-send delete doesn't brick regeneration
+    expect(mockPrismaDb.round.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({ data: { status: 'draft', sentAt: null } })
+    );
   });
 });
 

@@ -35,7 +35,9 @@ export async function GET(request: NextRequest) {
     // Middleware allows any logged-in group member to GET this route, so the
     // row-level filter here is what actually prevents one member from reading
     // the whole pairing table.
-    if (!session.isLoggedIn || session.groupId !== groupId) {
+    // Guard personId explicitly: a findFirst with giverId undefined would drop
+    // the filter and return an arbitrary member's pairing.
+    if (!session.isLoggedIn || !session.personId || session.groupId !== groupId) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
     const mine = await prisma.assignment.findFirst({
@@ -77,9 +79,17 @@ export async function DELETE(request: NextRequest) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
-    await prisma.assignment.deleteMany({
-      where: { groupId, year },
-    });
+    // Delete the assignments AND reset the round to draft in one transaction.
+    // Without the reset, deleting after a Send leaves the round in `sent`, which
+    // then refuses regeneration - stranding the group. updateMany is a no-op if
+    // no round exists for this group/year yet.
+    await prisma.$transaction([
+      prisma.assignment.deleteMany({ where: { groupId, year } }),
+      prisma.round.updateMany({
+        where: { groupId, year },
+        data: { status: "draft", sentAt: null },
+      }),
+    ]);
 
     return NextResponse.json({ success: true });
   } catch (error) {
