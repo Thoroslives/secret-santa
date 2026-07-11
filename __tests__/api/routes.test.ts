@@ -172,6 +172,7 @@ import { POST as createPin, DELETE as deletePin } from '@/app/api/pins/route';
 import { POST as generateRound } from '@/app/api/rounds/generate/route';
 import { POST as sendRound } from '@/app/api/rounds/send/route';
 import { POST as rolloverRound } from '@/app/api/rounds/rollover/route';
+import { POST as seedRound } from '@/app/api/rounds/seed/route';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -1589,6 +1590,143 @@ describe('POST /api/rounds/rollover', () => {
     expect(mockPrismaDb.round.upsert).toHaveBeenCalledWith(
       expect.objectContaining({ create: { groupId: 'group-1', year: 2027 } })
     );
+  });
+});
+
+// ===========================================================================
+// POST /api/rounds/seed - one-off admin backfill: hand-record a PAST year's
+// giver->receiver pairs so getPreviousYearExclusions has real history from
+// the group's very first real draw. `year` must be strictly before the
+// active year; every id must belong to the group; no self-pairs; each giver
+// at most once. Upserts a finalized ("sent") Round then replaces that year's
+// Assignments in one array-form transaction (idempotent re-seed).
+// ===========================================================================
+describe('POST /api/rounds/seed', () => {
+  const url = 'http://localhost:3000/api/rounds/seed';
+  const members = [{ id: 'p-1' }, { id: 'p-2' }, { id: 'p-3' }];
+  const validBody = {
+    groupId: 'group-1',
+    year: 2025,
+    pairs: [
+      { giverId: 'p-1', receiverId: 'p-2' },
+      { giverId: 'p-2', receiverId: 'p-3' },
+      { giverId: 'p-3', receiverId: 'p-1' },
+    ],
+  };
+
+  beforeEach(() => {
+    mockSession.isAdmin = true;
+    mockSession.adminGroupId = 'group-1';
+    (getActiveYear as jest.Mock).mockResolvedValue(2026);
+    mockPrismaDb.person.findMany.mockResolvedValue(members);
+    mockPrismaDb.round.upsert.mockResolvedValue({ id: 'round-seed', groupId: 'group-1', year: 2025, status: 'sent' });
+    mockPrismaDb.$transaction.mockResolvedValue([]);
+  });
+
+  it('returns 400 when groupId is missing', async () => {
+    const res = await seedRound(makePostRequest(url, { year: 2025, pairs: validBody.pairs }));
+    expect(res.status).toBe(400);
+  });
+
+  it('returns 403 for a non-admin', async () => {
+    delete mockSession.isAdmin;
+    const res = await seedRound(makePostRequest(url, validBody));
+    expect(res.status).toBe(403);
+  });
+
+  it('returns 403 when the admin does not own the group', async () => {
+    mockSession.adminGroupId = 'other-group';
+    const res = await seedRound(makePostRequest(url, validBody));
+    expect(res.status).toBe(403);
+  });
+
+  it('rejects a year that is not strictly before the active year', async () => {
+    const res = await seedRound(makePostRequest(url, { ...validBody, year: 2026 }));
+    expect(res.status).toBe(400);
+    expect(mockPrismaDb.person.findMany).not.toHaveBeenCalled();
+    expect(mockPrismaDb.round.upsert).not.toHaveBeenCalled();
+  });
+
+  it('rejects a future year the same way', async () => {
+    const res = await seedRound(makePostRequest(url, { ...validBody, year: 2030 }));
+    expect(res.status).toBe(400);
+    expect(mockPrismaDb.round.upsert).not.toHaveBeenCalled();
+  });
+
+  it('rejects an empty pairs array', async () => {
+    const res = await seedRound(makePostRequest(url, { ...validBody, pairs: [] }));
+    expect(res.status).toBe(400);
+    expect(mockPrismaDb.round.upsert).not.toHaveBeenCalled();
+  });
+
+  it('rejects a pair whose giver does not belong to the group', async () => {
+    const res = await seedRound(
+      makePostRequest(url, { ...validBody, pairs: [{ giverId: 'stranger', receiverId: 'p-2' }] })
+    );
+    expect(res.status).toBe(400);
+    expect(mockPrismaDb.round.upsert).not.toHaveBeenCalled();
+  });
+
+  it('rejects a pair whose receiver does not belong to the group', async () => {
+    const res = await seedRound(
+      makePostRequest(url, { ...validBody, pairs: [{ giverId: 'p-1', receiverId: 'stranger' }] })
+    );
+    expect(res.status).toBe(400);
+    expect(mockPrismaDb.round.upsert).not.toHaveBeenCalled();
+  });
+
+  it('rejects a self-pair', async () => {
+    const res = await seedRound(
+      makePostRequest(url, { ...validBody, pairs: [{ giverId: 'p-1', receiverId: 'p-1' }] })
+    );
+    expect(res.status).toBe(400);
+    expect(mockPrismaDb.round.upsert).not.toHaveBeenCalled();
+  });
+
+  it('rejects a duplicate giver (respects Assignment @@unique([giverId, year]))', async () => {
+    const res = await seedRound(
+      makePostRequest(url, {
+        ...validBody,
+        pairs: [
+          { giverId: 'p-1', receiverId: 'p-2' },
+          { giverId: 'p-1', receiverId: 'p-3' },
+        ],
+      })
+    );
+    expect(res.status).toBe(400);
+    expect(mockPrismaDb.round.upsert).not.toHaveBeenCalled();
+  });
+
+  it('upserts a sent round for the given year then creates one assignment per pair', async () => {
+    const res = await seedRound(makePostRequest(url, validBody));
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ year: 2025, seeded: 3 });
+
+    expect(mockPrismaDb.person.findMany).toHaveBeenCalledWith({
+      where: { groupId: 'group-1' },
+      select: { id: true },
+    });
+
+    expect(mockPrismaDb.round.upsert).toHaveBeenCalledWith({
+      where: { groupId_year: { groupId: 'group-1', year: 2025 } },
+      update: { status: 'sent' },
+      create: { groupId: 'group-1', year: 2025, status: 'sent' },
+    });
+
+    expect(mockPrismaDb.$transaction).toHaveBeenCalledTimes(1);
+    expect(mockPrismaDb.assignment.deleteMany).toHaveBeenCalledWith({
+      where: { groupId: 'group-1', year: 2025 },
+    });
+    expect(mockPrismaDb.assignment.create).toHaveBeenCalledTimes(3);
+    expect(mockPrismaDb.assignment.create).toHaveBeenCalledWith({
+      data: { groupId: 'group-1', roundId: 'round-seed', giverId: 'p-1', receiverId: 'p-2', year: 2025 },
+    });
+    expect(mockPrismaDb.assignment.create).toHaveBeenCalledWith({
+      data: { groupId: 'group-1', roundId: 'round-seed', giverId: 'p-2', receiverId: 'p-3', year: 2025 },
+    });
+    expect(mockPrismaDb.assignment.create).toHaveBeenCalledWith({
+      data: { groupId: 'group-1', roundId: 'round-seed', giverId: 'p-3', receiverId: 'p-1', year: 2025 },
+    });
   });
 });
 

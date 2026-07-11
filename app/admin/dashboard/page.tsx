@@ -36,7 +36,17 @@ export default function AdminDashboard() {
   const [budget, setBudget] = useState<GroupBudget>({ budgetAmount: undefined, budgetCurrency: "USD" });
   const [budgetAmount, setBudgetAmount] = useState("");
   const [budgetCurrency, setBudgetCurrency] = useState("USD");
+  const [seedYear, setSeedYear] = useState("");
+  const [seedPairs, setSeedPairs] = useState<{ giverId: string; receiverId: string }[]>([
+    { giverId: "", receiverId: "" },
+  ]);
   const router = useRouter();
+
+  useEffect(() => {
+    if (activeYear !== null) {
+      setSeedYear(String(activeYear - 1));
+    }
+  }, [activeYear]);
 
   useEffect(() => {
     // Check admin session from server
@@ -244,6 +254,52 @@ export default function AdminDashboard() {
       setShareLinks([]);
       setSuccessMessage(`Started ${data.year}. Wishlists have been reset for the new year.`);
       loadData(groupInfo.id);
+    } catch (err) {
+      setError("An error occurred");
+    }
+  };
+
+  const handleAddSeedRow = () => {
+    setSeedPairs((rows) => [...rows, { giverId: "", receiverId: "" }]);
+  };
+
+  const handleSeedRowChange = (index: number, field: "giverId" | "receiverId", value: string) => {
+    setSeedPairs((rows) => rows.map((row, i) => (i === index ? { ...row, [field]: value } : row)));
+  };
+
+  const handleSeedSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError("");
+    setSuccessMessage("");
+
+    const yearNum = parseInt(seedYear, 10);
+    if (!seedYear.trim() || isNaN(yearNum)) {
+      setError("Enter a valid year");
+      return;
+    }
+
+    const pairs = seedPairs
+      .filter((p) => p.giverId && p.receiverId)
+      .map((p) => ({ giverId: p.giverId, receiverId: p.receiverId }));
+
+    if (pairs.length === 0) {
+      setError("Add at least one giver and receiver pair");
+      return;
+    }
+
+    try {
+      const res = await fetch("/api/rounds/seed", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ groupId: groupInfo.id, year: yearNum, pairs }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data.error || "Failed to save last year's pairs");
+        return;
+      }
+      setSuccessMessage(`Saved ${data.seeded} pair(s) for ${data.year}.`);
+      setSeedPairs([{ giverId: "", receiverId: "" }]);
     } catch (err) {
       setError("An error occurred");
     }
@@ -529,6 +585,79 @@ export default function AdminDashboard() {
             </div>
           </div>
         </div>
+
+        {/* Seed last year's pairs - one-time backfill so this year's draw can
+            avoid repeating them, even before this app has ever run a draw. */}
+        <details className="mt-8 bg-[#151528] p-6 rounded-2xl border border-white/10 card-glow">
+          <summary className="text-2xl font-bold text-santa-snow cursor-pointer">
+            Seed last year&apos;s pairs
+          </summary>
+          <p className="text-sm text-gray-400 mt-2 mb-4">
+            Record who gave to whom last year by hand, so this year&apos;s draw knows to avoid repeating those
+            pairs. Only needed once, to backfill history from before this app was used.
+          </p>
+          <form onSubmit={handleSeedSubmit} className="space-y-4">
+            <div>
+              <label htmlFor="seedYear" className="block text-sm font-medium text-gray-300 mb-2">
+                Year
+              </label>
+              <input
+                type="number"
+                id="seedYear"
+                value={seedYear}
+                onChange={(e) => setSeedYear(e.target.value)}
+                className="w-full sm:w-40 px-4 py-2 bg-santa-dark border border-white/10 rounded-lg focus:ring-2 focus:ring-santa-gold focus:border-transparent text-santa-snow"
+              />
+            </div>
+
+            <div className="space-y-3">
+              {seedPairs.map((pair, index) => (
+                <div key={index} className="flex flex-col sm:flex-row gap-2 sm:items-center">
+                  <select
+                    value={pair.giverId}
+                    onChange={(e) => handleSeedRowChange(index, "giverId", e.target.value)}
+                    className="w-full px-3 py-2 bg-santa-dark border border-white/10 rounded-lg text-santa-snow"
+                  >
+                    <option value="">Giver...</option>
+                    {people.map((person) => (
+                      <option key={person.id} value={person.id}>
+                        {person.name}
+                      </option>
+                    ))}
+                  </select>
+                  <span className="text-gray-500 hidden sm:inline">&rarr;</span>
+                  <select
+                    value={pair.receiverId}
+                    onChange={(e) => handleSeedRowChange(index, "receiverId", e.target.value)}
+                    className="w-full px-3 py-2 bg-santa-dark border border-white/10 rounded-lg text-santa-snow"
+                  >
+                    <option value="">Receiver...</option>
+                    {people.map((person) => (
+                      <option key={person.id} value={person.id}>
+                        {person.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              ))}
+            </div>
+
+            <button
+              type="button"
+              onClick={handleAddSeedRow}
+              className="text-santa-gold text-sm font-semibold hover:underline"
+            >
+              + Add row
+            </button>
+
+            <button
+              type="submit"
+              className="w-full bg-white/10 text-santa-snow py-2 rounded-xl font-semibold hover:bg-white/20 transition border border-white/10"
+            >
+              Save last year&apos;s pairs
+            </button>
+          </form>
+        </details>
 
         {/* People List */}
         <div className="mt-8 bg-[#151528] p-6 rounded-2xl border border-white/10 card-glow">
