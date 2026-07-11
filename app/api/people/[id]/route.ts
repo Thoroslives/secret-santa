@@ -29,13 +29,9 @@ export async function PATCH(
       );
     }
 
-    // Verify the person belongs to the admin's group
     const person = await prisma.person.findUnique({ where: { id } });
     if (!person) {
       return NextResponse.json({ error: "Person not found" }, { status: 404 });
-    }
-    if (person.groupId !== session.adminGroupId) {
-      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
     const data: { active?: boolean; personalLinkToken?: string } = {};
@@ -65,13 +61,9 @@ export async function DELETE(
 
     const { id } = params;
 
-    // Verify the person belongs to the admin's group
     const person = await prisma.person.findUnique({ where: { id } });
     if (!person) {
       return NextResponse.json({ error: "Person not found" }, { status: 404 });
-    }
-    if (person.groupId !== session.adminGroupId) {
-      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
     await prisma.person.delete({

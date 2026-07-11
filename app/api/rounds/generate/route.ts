@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
-import { requireAdminForGroup } from "@/lib/admin";
+import { requireAdmin } from "@/lib/admin";
 import { ensureRound, getActiveYear, getPreviousYearExclusions } from "@/lib/rounds";
 import { generateDraw } from "@/lib/secret-santa";
 
@@ -16,7 +16,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Group ID is required" }, { status: 400 });
     }
 
-    const forbidden = await requireAdminForGroup(groupId);
+    const forbidden = await requireAdmin();
     if (forbidden) return forbidden;
 
     const currentYear = await getActiveYear(groupId);

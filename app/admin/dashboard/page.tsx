@@ -60,12 +60,11 @@ export default function AdminDashboard() {
           return;
         }
 
-        setGroupInfo({
-          id: session.adminGroupId,
-          name: session.adminGroupName || "",
-          inviteCode: session.adminInviteCode || "",
-        });
-        loadData(session.adminGroupId);
+        // P4-B4: the admin session no longer carries a single adminGroupId -
+        // the super-admin owns every group, and this dashboard is still
+        // single-group. B4 rewrites this page with a group picker; until
+        // then there is no group to load data for.
+        setLoading(false);
       })
       .catch(() => {
         router.push("/admin");

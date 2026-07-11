@@ -20,9 +20,8 @@ export async function GET() {
       loginMethod: session.loginMethod,
       isLoggedIn: session.isLoggedIn,
       isAdmin: session.isAdmin,
-      adminGroupId: session.adminGroupId,
-      adminGroupName: session.adminGroupName,
-      adminInviteCode: session.adminInviteCode,
+      adminEmail: session.adminEmail,
+      adminLoginMethod: session.adminLoginMethod,
     });
   } catch (error) {
     console.error("Session check error:", error);

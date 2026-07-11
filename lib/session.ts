@@ -9,11 +9,15 @@ export interface SessionData {
   groupName?: string;
   loginMethod?: "link";
   isLoggedIn?: boolean;
-  // Admin session fields
+  // Admin session fields. Single super-admin over ALL groups (P4) - no more
+  // per-group adminGroupId/adminGroupName/adminInviteCode.
   isAdmin?: boolean;
-  adminGroupId?: string;
-  adminGroupName?: string;
-  adminInviteCode?: string;
+  adminEmail?: string;
+  adminLoginMethod?: "oidc" | "breakglass";
+  // Transient OIDC PKCE/state, set mid-flow and cleared once the callback
+  // completes (B1/B2 - not used yet).
+  oidcVerifier?: string;
+  oidcState?: string;
 }
 
 export function cookieSecure(env: NodeJS.ProcessEnv = process.env): boolean {

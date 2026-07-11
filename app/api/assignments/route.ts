@@ -17,11 +17,9 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: "Group ID is required" }, { status: 400 });
     }
 
-    // ADMIN: sees every pair for the round (this is the review view).
+    // ADMIN: sees every pair for the round (this is the review view). The
+    // super-admin owns every group, so there is no per-group check here.
     if (session.isAdmin) {
-      if (session.adminGroupId !== groupId) {
-        return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-      }
       const year = parseInt(searchParams.get("year") || "") || await getActiveYear(groupId);
       const assignments = await prisma.assignment.findMany({
         where: { groupId, year },
@@ -78,11 +76,6 @@ export async function DELETE(request: NextRequest) {
 
     if (!groupId) {
       return NextResponse.json({ error: "Group ID is required" }, { status: 400 });
-    }
-
-    // Verify admin owns this group
-    if (session.adminGroupId !== groupId) {
-      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
     const year = await getActiveYear(groupId);

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
-import { requireAdminForGroup } from "@/lib/admin";
+import { requireAdmin } from "@/lib/admin";
 
 // Blocks are symmetric and persist across years (partners never draw each
 // other). Stored once with the pair id-sorted so (A,B) and (B,A) dedupe.
@@ -18,7 +18,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const forbidden = await requireAdminForGroup(groupId);
+    const forbidden = await requireAdmin();
     if (forbidden) return forbidden;
 
     if (personAId === personBId) {
@@ -59,7 +59,7 @@ export async function DELETE(request: NextRequest) {
       return NextResponse.json({ error: "Block not found" }, { status: 404 });
     }
 
-    const forbidden = await requireAdminForGroup(block.groupId);
+    const forbidden = await requireAdmin();
     if (forbidden) return forbidden;
 
     await prisma.block.delete({ where: { id } });

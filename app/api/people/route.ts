@@ -17,8 +17,8 @@ export async function GET(request: NextRequest) {
     // Admin-only: the response includes each person's durable
     // `personalLinkToken`, which is a login credential (see app/p/[token]).
     // A participant enumerating the roster would harvest everyone's tokens and
-    // could impersonate them, so only the group's own admin may list people.
-    if (!session.isAdmin || session.adminGroupId !== groupId) {
+    // could impersonate them, so only the (super-)admin may list people.
+    if (!session.isAdmin) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
@@ -59,11 +59,6 @@ export async function POST(request: NextRequest) {
 
     if (!groupId) {
       return NextResponse.json({ error: "Group ID is required" }, { status: 400 });
-    }
-
-    // Verify admin owns this group
-    if (session.adminGroupId !== groupId) {
-      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
     // Validate email if provided

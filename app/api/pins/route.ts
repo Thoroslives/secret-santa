@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
-import { requireAdminForGroup } from "@/lib/admin";
+import { requireAdmin } from "@/lib/admin";
 import { ensureRound, getActiveYear } from "@/lib/rounds";
 
 // Forced pins are directional (this giver MUST draw that receiver) and scoped
@@ -20,7 +20,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const forbidden = await requireAdminForGroup(groupId);
+    const forbidden = await requireAdmin();
     if (forbidden) return forbidden;
 
     if (giverId === receiverId) {
@@ -68,7 +68,7 @@ export async function DELETE(request: NextRequest) {
       return NextResponse.json({ error: "Pin not found" }, { status: 404 });
     }
 
-    const forbidden = await requireAdminForGroup(pin.round.groupId);
+    const forbidden = await requireAdmin();
     if (forbidden) return forbidden;
 
     if (pin.round.status === "sent") {

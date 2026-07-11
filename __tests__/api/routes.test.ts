@@ -28,9 +28,6 @@ const mockPrismaDb = {
     create: jest.fn(),
     deleteMany: jest.fn(),
   },
-  adminConfig: {
-    findUnique: jest.fn(),
-  },
   block: {
     findFirst: jest.fn(),
     findUnique: jest.fn(),
@@ -90,7 +87,7 @@ jest.mock('@/app/generated/prisma', () => ({
 // implementation calls `next/headers` `cookies()`, which throws outside a real
 // request scope ("cookies() was called outside a request scope") and every
 // such route 500s before its own logic ever runs. Individual tests set the
-// fields they need (isAdmin/adminGroupId, isLoggedIn/personId/groupId, etc.);
+// fields they need (isAdmin/adminEmail, isLoggedIn/personId/groupId, etc.);
 // the beforeEach below clears everything back to a logged-out session except
 // the two jest.fn spies themselves.
 // ---------------------------------------------------------------------------
@@ -103,17 +100,6 @@ jest.mock('@/lib/session', () => ({
   getSession: jest.fn(async () => mockSession),
   getSessionFromRequest: jest.fn(async () => mockSession),
   cookieSecure: jest.fn(() => false),
-}));
-
-// ---------------------------------------------------------------------------
-// Mock bcryptjs
-// ---------------------------------------------------------------------------
-jest.mock('bcryptjs', () => ({
-  __esModule: true,
-  default: {
-    hash: jest.fn().mockResolvedValue('hashed-password'),
-    compare: jest.fn(),
-  },
 }));
 
 // ---------------------------------------------------------------------------
@@ -157,7 +143,6 @@ jest.mock('@/lib/rounds', () => ({
 // ---------------------------------------------------------------------------
 // Imports (after mocks)
 // ---------------------------------------------------------------------------
-import bcrypt from 'bcryptjs';
 import { ensureRound, getActiveYear, getPreviousYearExclusions } from '@/lib/rounds';
 import { generateGroupInviteCode, generatePersonalLinkToken, validateWishlistItems } from '@/lib/utils';
 import { sendLoginLinkEmail, sendMatchReadyEmail } from '@/lib/email';
@@ -173,6 +158,7 @@ import { DELETE as deletePerson, PATCH as patchPerson } from '@/app/api/people/[
 import { GET as personData } from '@/app/api/auth/person-data/route';
 import { POST as updateWishlist } from '@/app/api/wishlist/route';
 import { GET as getAssignments, DELETE as deleteAssignments } from '@/app/api/assignments/route';
+import { GET as getSessionInfo } from '@/app/api/auth/session/route';
 import { POST as adminAuth } from '@/app/api/admin/auth/route';
 import { POST as createBlock, DELETE as deleteBlock } from '@/app/api/blocks/route';
 import { POST as createPin, DELETE as deletePin } from '@/app/api/pins/route';
@@ -253,7 +239,6 @@ describe('POST /api/groups/create', () => {
       name: 'Test Group',
       inviteCode: 'ABC123',
       year: 2026,
-      adminConfig: { id: 'ac-1', hashedPassword: 'hashed-password', groupId: 'group-1' },
     });
 
     // Must satisfy validatePassword(): 12+ chars, upper + lower + digit.
@@ -270,7 +255,8 @@ describe('POST /api/groups/create', () => {
     });
 
     expect(generateGroupInviteCode).toHaveBeenCalled();
-    expect(bcrypt.hash).toHaveBeenCalledWith('Password1234', 12);
+    // P4-A1 removed AdminConfig/bcrypt entirely - adminPassword is validated
+    // for API-contract compatibility but never hashed or persisted anymore.
     expect(mockPrismaDb.group.create).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({ name: 'Test Group', inviteCode: 'ABC123' }),
@@ -356,6 +342,32 @@ describe('GET /api/groups/[id]', () => {
     const json = await res.json();
     expect(json.group).toEqual(groupData);
   });
+
+  // SECURITY: must not regress - a participant may only ever read their OWN
+  // group, never another one by editing the URL.
+  it('forbids a participant from reading a different group', async () => {
+    mockSession.isLoggedIn = true;
+    mockSession.personId = 'p-1';
+    mockSession.groupId = 'group-1';
+    const req = makeGetRequest('http://localhost:3000/api/groups/other-group');
+    const res = await getGroup(req, { params: { id: 'other-group' } } as any);
+    expect(res.status).toBe(403);
+    expect(mockPrismaDb.group.findUnique).not.toHaveBeenCalled();
+  });
+
+  // P4 collapse: the super-admin owns every group, so an admin session (no
+  // per-group field at all anymore) can read ANY group by id.
+  it('super-admin can read any group, not just a specific one', async () => {
+    mockSession.isAdmin = true;
+    const groupData = { id: 'some-other-group', name: 'Someone Else', inviteCode: 'XYZ789', year: 2026, _count: { people: 2, assignments: 0 } };
+    mockPrismaDb.group.findUnique.mockResolvedValue(groupData);
+
+    const req = makeGetRequest('http://localhost:3000/api/groups/some-other-group');
+    const res = await getGroup(req, { params: { id: 'some-other-group' } } as any);
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.group).toEqual(groupData);
+  });
 });
 
 // ===========================================================================
@@ -363,10 +375,43 @@ describe('GET /api/groups/[id]', () => {
 // ===========================================================================
 describe('PATCH /api/groups/[id]', () => {
   // Same mockPrismaOwn->mockPrismaDb correction as GET /api/groups/[id] above, plus an
-  // admin session (this route 403s up front unless session.isAdmin && adminGroupId matches).
+  // admin session (this route 403s up front unless session.isAdmin).
   beforeEach(() => {
     mockSession.isAdmin = true;
-    mockSession.adminGroupId = 'group-1';
+  });
+
+  it('returns 403 for a participant (non-admin)', async () => {
+    delete mockSession.isAdmin;
+    mockSession.isLoggedIn = true;
+    mockSession.personId = 'p-1';
+    mockSession.groupId = 'group-1';
+    const req = makePatchRequest('http://localhost:3000/api/groups/group-1', { budgetAmount: 50 });
+    const res = await patchGroup(req, { params: { id: 'group-1' } } as any);
+    expect(res.status).toBe(403);
+    expect(mockPrismaDb.group.update).not.toHaveBeenCalled();
+  });
+
+  it('returns 403 for an anonymous session', async () => {
+    delete mockSession.isAdmin;
+    const req = makePatchRequest('http://localhost:3000/api/groups/group-1', { budgetAmount: 50 });
+    const res = await patchGroup(req, { params: { id: 'group-1' } } as any);
+    expect(res.status).toBe(403);
+    expect(mockPrismaDb.group.update).not.toHaveBeenCalled();
+  });
+
+  // P4 collapse: no per-group ownership left - the super-admin can patch any group.
+  it('super-admin can patch a group other than any specific one', async () => {
+    const updatedGroup = { id: 'a-totally-different-group', name: 'Other', budgetAmount: 20, budgetCurrency: 'USD' };
+    mockPrismaDb.group.update.mockResolvedValue(updatedGroup);
+    const req = makePatchRequest('http://localhost:3000/api/groups/a-totally-different-group', {
+      budgetAmount: 20,
+      budgetCurrency: 'USD',
+    });
+    const res = await patchGroup(req, { params: { id: 'a-totally-different-group' } } as any);
+    expect(res.status).toBe(200);
+    expect(mockPrismaDb.group.update).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { id: 'a-totally-different-group' } }),
+    );
   });
 
   it('returns 400 for invalid currency code', async () => {
@@ -678,7 +723,6 @@ describe('POST /api/auth/email-link', () => {
 describe('GET /api/people', () => {
   beforeEach(() => {
     mockSession.isAdmin = true;
-    mockSession.adminGroupId = 'group-1';
   });
 
   it('returns 400 when groupId is missing', async () => {
@@ -708,7 +752,6 @@ describe('GET /api/people', () => {
 
   it('forbids a participant listing people (would leak durable login tokens)', async () => {
     delete mockSession.isAdmin;
-    delete mockSession.adminGroupId;
     mockSession.isLoggedIn = true;
     mockSession.personId = 'p-1';
     mockSession.groupId = 'group-1';
@@ -716,6 +759,23 @@ describe('GET /api/people', () => {
     expect(res.status).toBe(403);
     // must NOT have queried the roster - no token exposure
     expect(mockPrismaDb.person.findMany).not.toHaveBeenCalled();
+  });
+
+  it('forbids an anonymous request listing people', async () => {
+    delete mockSession.isAdmin;
+    const res = await getPeople(makeGetRequest('http://localhost:3000/api/people?groupId=group-1'));
+    expect(res.status).toBe(403);
+    expect(mockPrismaDb.person.findMany).not.toHaveBeenCalled();
+  });
+
+  // P4 collapse: no per-group ownership left - the super-admin can list any group's people.
+  it('super-admin can list people for a group other than any specific one', async () => {
+    mockPrismaDb.person.findMany.mockResolvedValue([]);
+    const res = await getPeople(makeGetRequest('http://localhost:3000/api/people?groupId=some-other-group'));
+    expect(res.status).toBe(200);
+    expect(mockPrismaDb.person.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { groupId: 'some-other-group' } }),
+    );
   });
 });
 
@@ -727,7 +787,23 @@ describe('POST /api/people', () => {
 
   beforeEach(() => {
     mockSession.isAdmin = true;
-    mockSession.adminGroupId = 'group-1';
+  });
+
+  it('returns 403 for a participant (non-admin)', async () => {
+    delete mockSession.isAdmin;
+    mockSession.isLoggedIn = true;
+    mockSession.personId = 'p-1';
+    mockSession.groupId = 'group-1';
+    const res = await createPerson(makePostRequest(url, { name: 'Alice', groupId: 'group-1' }));
+    expect(res.status).toBe(403);
+    expect(mockPrismaDb.person.create).not.toHaveBeenCalled();
+  });
+
+  it('returns 403 for an anonymous session', async () => {
+    delete mockSession.isAdmin;
+    const res = await createPerson(makePostRequest(url, { name: 'Alice', groupId: 'group-1' }));
+    expect(res.status).toBe(403);
+    expect(mockPrismaDb.person.create).not.toHaveBeenCalled();
   });
 
   it('returns 400 when name is missing', async () => {
@@ -788,6 +864,20 @@ describe('POST /api/people', () => {
       }),
     );
   });
+
+  // P4 collapse: no per-group ownership left - the super-admin can create a
+  // person in any group.
+  it('super-admin can create a person in a group other than any specific one', async () => {
+    mockPrismaDb.person.findFirst.mockResolvedValue(null);
+    mockPrismaDb.person.create.mockResolvedValue({ id: 'person-2', name: 'Bob', groupId: 'some-other-group' });
+
+    const req = makePostRequest(url, { name: 'Bob', groupId: 'some-other-group' });
+    const res = await createPerson(req);
+    expect(res.status).toBe(201);
+    expect(mockPrismaDb.person.create).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ groupId: 'some-other-group' }) }),
+    );
+  });
 });
 
 // ===========================================================================
@@ -796,7 +886,36 @@ describe('POST /api/people', () => {
 describe('DELETE /api/people/[id]', () => {
   beforeEach(() => {
     mockSession.isAdmin = true;
-    mockSession.adminGroupId = 'group-1';
+  });
+
+  it('returns 403 for a participant (non-admin)', async () => {
+    delete mockSession.isAdmin;
+    mockSession.isLoggedIn = true;
+    mockSession.personId = 'p-1';
+    mockSession.groupId = 'group-1';
+    const req = makeDeleteRequest('http://localhost:3000/api/people/person-1');
+    const res = await deletePerson(req, { params: { id: 'person-1' } } as any);
+    expect(res.status).toBe(403);
+    expect(mockPrismaDb.person.delete).not.toHaveBeenCalled();
+  });
+
+  it('returns 403 for an anonymous session', async () => {
+    delete mockSession.isAdmin;
+    const req = makeDeleteRequest('http://localhost:3000/api/people/person-1');
+    const res = await deletePerson(req, { params: { id: 'person-1' } } as any);
+    expect(res.status).toBe(403);
+    expect(mockPrismaDb.person.delete).not.toHaveBeenCalled();
+  });
+
+  // P4 collapse: no per-group ownership left - the super-admin can delete a
+  // person belonging to any group.
+  it('super-admin can delete a person belonging to a group other than any specific one', async () => {
+    mockPrismaDb.person.findUnique.mockResolvedValue({ id: 'person-9', groupId: 'some-other-group' });
+    mockPrismaDb.person.delete.mockResolvedValue({ id: 'person-9' });
+    const req = makeDeleteRequest('http://localhost:3000/api/people/person-9');
+    const res = await deletePerson(req, { params: { id: 'person-9' } } as any);
+    expect(res.status).toBe(200);
+    expect(mockPrismaDb.person.delete).toHaveBeenCalledWith({ where: { id: 'person-9' } });
   });
 
   it('returns 200 on successful delete', async () => {
@@ -831,7 +950,18 @@ describe('DELETE /api/people/[id]', () => {
 describe('PATCH /api/people/[id]', () => {
   const url = 'http://localhost:3000/api/people/person-1';
 
-  it('returns 403 when not admin', async () => {
+  it('returns 403 when anonymous', async () => {
+    const req = makePatchRequest(url, { active: false });
+    const res = await patchPerson(req, { params: { id: 'person-1' } } as any);
+    expect(res.status).toBe(403);
+    const json = await res.json();
+    expect(json.error).toBe('Admin authentication required');
+  });
+
+  it('returns 403 for a participant (non-admin)', async () => {
+    mockSession.isLoggedIn = true;
+    mockSession.personId = 'p-1';
+    mockSession.groupId = 'group-1';
     const req = makePatchRequest(url, { active: false });
     const res = await patchPerson(req, { params: { id: 'person-1' } } as any);
     expect(res.status).toBe(403);
@@ -842,7 +972,6 @@ describe('PATCH /api/people/[id]', () => {
   describe('as admin', () => {
     beforeEach(() => {
       mockSession.isAdmin = true;
-      mockSession.adminGroupId = 'group-1';
     });
 
     it('returns 400 when neither a boolean active nor rotateLink is given', async () => {
@@ -863,14 +992,17 @@ describe('PATCH /api/people/[id]', () => {
       expect(json.error).toBe('Person not found');
     });
 
-    it('returns 403 when person belongs to a different group', async () => {
+    // P4 collapse: no per-group ownership left - the super-admin can patch a
+    // person belonging to any group.
+    it('super-admin can patch a person belonging to a group other than any specific one', async () => {
       mockPrismaDb.person.findUnique.mockResolvedValue({ id: 'person-1', groupId: 'other-group' });
+      mockPrismaDb.person.update.mockResolvedValue({ id: 'person-1', groupId: 'other-group', active: false });
 
       const req = makePatchRequest(url, { active: false });
       const res = await patchPerson(req, { params: { id: 'person-1' } } as any);
-      expect(res.status).toBe(403);
+      expect(res.status).toBe(200);
       const json = await res.json();
-      expect(json.error).toBe('Forbidden');
+      expect(json.person.active).toBe(false);
     });
 
     it('returns 200 and flips active', async () => {
@@ -996,8 +1128,23 @@ describe('POST /api/wishlist', () => {
 describe('GET /api/assignments', () => {
   beforeEach(() => {
     mockSession.isAdmin = true;
-    mockSession.adminGroupId = 'group-1';
     (getActiveYear as jest.Mock).mockResolvedValue(2026);
+  });
+
+  it('forbids an anonymous request', async () => {
+    delete mockSession.isAdmin;
+    const res = await getAssignments(makeGetRequest('http://localhost:3000/api/assignments?groupId=group-1'));
+    expect(res.status).toBe(403);
+  });
+
+  // P4 collapse: no per-group ownership left - the super-admin can view any group's assignments.
+  it('super-admin can view assignments for a group other than any specific one', async () => {
+    mockPrismaDb.assignment.findMany.mockResolvedValue([]);
+    const res = await getAssignments(makeGetRequest('http://localhost:3000/api/assignments?groupId=some-other-group'));
+    expect(res.status).toBe(200);
+    expect(mockPrismaDb.assignment.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { groupId: 'some-other-group', year: 2026 } })
+    );
   });
 
   it('returns 400 when groupId is missing', async () => {
@@ -1046,7 +1193,6 @@ describe('GET /api/assignments', () => {
 
   it('participant sees only their OWN match and only once sent', async () => {
     delete mockSession.isAdmin;
-    delete mockSession.adminGroupId;
     mockSession.isLoggedIn = true;
     mockSession.personId = 'p-1';
     mockSession.groupId = 'group-1';
@@ -1125,7 +1271,6 @@ describe('GET /api/assignments', () => {
 describe('DELETE /api/assignments', () => {
   beforeEach(() => {
     mockSession.isAdmin = true;
-    mockSession.adminGroupId = 'group-1';
     (getActiveYear as jest.Mock).mockResolvedValue(2026);
   });
 
@@ -1135,6 +1280,37 @@ describe('DELETE /api/assignments', () => {
     expect(res.status).toBe(400);
     const json = await res.json();
     expect(json.error).toBe('Group ID is required');
+  });
+
+  it('returns 403 for a participant (non-admin)', async () => {
+    delete mockSession.isAdmin;
+    mockSession.isLoggedIn = true;
+    mockSession.personId = 'p-1';
+    mockSession.groupId = 'group-1';
+    const req = makeDeleteRequest('http://localhost:3000/api/assignments?groupId=group-1');
+    const res = await deleteAssignments(req);
+    expect(res.status).toBe(403);
+    expect(mockPrismaDb.assignment.deleteMany).not.toHaveBeenCalled();
+  });
+
+  it('returns 403 for an anonymous session', async () => {
+    delete mockSession.isAdmin;
+    const req = makeDeleteRequest('http://localhost:3000/api/assignments?groupId=group-1');
+    const res = await deleteAssignments(req);
+    expect(res.status).toBe(403);
+    expect(mockPrismaDb.assignment.deleteMany).not.toHaveBeenCalled();
+  });
+
+  // P4 collapse: no per-group ownership left - the super-admin can clear any group's assignments.
+  it('super-admin can delete assignments for a group other than any specific one', async () => {
+    mockPrismaDb.assignment.deleteMany.mockResolvedValue({ count: 0 });
+    mockPrismaDb.$transaction.mockResolvedValue([]);
+    const req = makeDeleteRequest('http://localhost:3000/api/assignments?groupId=some-other-group');
+    const res = await deleteAssignments(req);
+    expect(res.status).toBe(200);
+    expect(mockPrismaDb.assignment.deleteMany).toHaveBeenCalledWith({
+      where: { groupId: 'some-other-group', year: 2026 },
+    });
   });
 
   it('deletes assignments AND resets the round to draft (avoids stranding a sent round)', async () => {
@@ -1167,79 +1343,147 @@ describe('DELETE /api/assignments', () => {
 });
 
 // ===========================================================================
-// 15. POST /api/admin/auth
+// GET /api/auth/session - session probe the client polls for admin/
+// participant state. P4: no more per-group adminGroupId/adminGroupName/
+// adminInviteCode - returns isAdmin/adminEmail/adminLoginMethod instead.
+// ===========================================================================
+describe('GET /api/auth/session', () => {
+  it('returns {authenticated: false} for an anonymous session', async () => {
+    const res = await getSessionInfo();
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.authenticated).toBe(false);
+  });
+
+  it('returns the break-glass admin session shape, with no adminGroupId/adminGroupName/adminInviteCode', async () => {
+    mockSession.isAdmin = true;
+    mockSession.adminLoginMethod = 'breakglass';
+    const res = await getSessionInfo();
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.authenticated).toBe(true);
+    expect(json.isAdmin).toBe(true);
+    expect(json.adminLoginMethod).toBe('breakglass');
+    expect(json.adminEmail).toBeUndefined();
+    expect(json).not.toHaveProperty('adminGroupId');
+    expect(json).not.toHaveProperty('adminGroupName');
+    expect(json).not.toHaveProperty('adminInviteCode');
+  });
+
+  it('returns the OIDC admin session shape with adminEmail set', async () => {
+    mockSession.isAdmin = true;
+    mockSession.adminEmail = 'admin@example.com';
+    mockSession.adminLoginMethod = 'oidc';
+    const res = await getSessionInfo();
+    const json = await res.json();
+    expect(json.isAdmin).toBe(true);
+    expect(json.adminEmail).toBe('admin@example.com');
+    expect(json.adminLoginMethod).toBe('oidc');
+  });
+
+  it('returns the participant session shape', async () => {
+    mockSession.isLoggedIn = true;
+    mockSession.personId = 'person-1';
+    mockSession.personName = 'Alice';
+    mockSession.groupId = 'group-1';
+    mockSession.groupName = 'Test Group';
+    mockSession.loginMethod = 'link';
+    const res = await getSessionInfo();
+    const json = await res.json();
+    expect(json.authenticated).toBe(true);
+    expect(json.isAdmin).toBeUndefined();
+    expect(json.personId).toBe('person-1');
+    expect(json.groupId).toBe('group-1');
+  });
+});
+
+// ===========================================================================
+// 15. POST /api/admin/auth - break-glass super-admin login (P4). No groupId
+// in the request: a successful admin session owns every group. Drives the
+// REAL lib/adminAuth.verifyBreakGlass (env-driven, no DB/bcrypt) rather than
+// mocking it, matching __tests__/lib/adminAuth.test.ts's own convention.
 // ===========================================================================
 describe('POST /api/admin/auth', () => {
   const url = 'http://localhost:3000/api/admin/auth';
+  const BREAKGLASS_PASSWORD = 'correct-horse-battery-staple';
+  const originalBreakglass = process.env.ADMIN_BREAKGLASS_PASSWORD;
+
+  // Every test gets its own never-repeated source IP so none of these can
+  // ever trip (or be tripped by) the adminAuthRateLimit shared in-memory
+  // store, regardless of test order or how many cases get added later. The
+  // dedicated rate-limit test below reuses one fixed IP on purpose.
+  let ipCounter = 0;
+  function makeAuthRequest(body: Record<string, unknown>, ip?: string): NextRequest {
+    ipCounter++;
+    return new NextRequest(url, {
+      method: 'POST',
+      body: JSON.stringify(body),
+      headers: { 'Content-Type': 'application/json', 'x-forwarded-for': ip ?? `10.0.8.${ipCounter}` },
+    });
+  }
+
+  beforeEach(() => {
+    process.env.ADMIN_BREAKGLASS_PASSWORD = BREAKGLASS_PASSWORD;
+  });
+
+  afterEach(() => {
+    if (originalBreakglass === undefined) delete process.env.ADMIN_BREAKGLASS_PASSWORD;
+    else process.env.ADMIN_BREAKGLASS_PASSWORD = originalBreakglass;
+  });
 
   it('returns 400 when password is missing', async () => {
-    const req = makePostRequest(url, { groupId: 'group-1' });
-    const res = await adminAuth(req);
+    const res = await adminAuth(makeAuthRequest({}));
     expect(res.status).toBe(400);
     const json = await res.json();
     expect(json.error).toBe('Password is required');
   });
 
-  it('returns 400 when groupId is missing', async () => {
-    const req = makePostRequest(url, { password: 'secret123' });
-    const res = await adminAuth(req);
-    expect(res.status).toBe(400);
-    const json = await res.json();
-    expect(json.error).toBe('Group ID is required');
+  it('accepts a body with no groupId at all (super-admin owns every group)', async () => {
+    const res = await adminAuth(makeAuthRequest({ password: BREAKGLASS_PASSWORD }));
+    expect(res.status).toBe(200);
   });
 
-  it('returns 401 when group is not found (enumeration-safe: same message as wrong password)', async () => {
-    // The route intentionally returns the same 401 "Invalid credentials" whether the
-    // group/adminConfig doesn't exist or the password is wrong, to avoid leaking which
-    // one was the problem (see the route's "prevent enumeration" comment). This test
-    // predates that and expected a distinguishing 404 - corrected to match.
-    mockPrismaDb.adminConfig.findUnique.mockResolvedValue(null);
-
-    const req = makePostRequest(url, { password: 'secret123', groupId: 'nonexistent' });
-    const res = await adminAuth(req);
+  it('returns 401 for a wrong password (generic message, enumeration-safe)', async () => {
+    const res = await adminAuth(makeAuthRequest({ password: 'wrong-password' }));
     expect(res.status).toBe(401);
     const json = await res.json();
     expect(json.error).toBe('Invalid credentials');
   });
 
-  it('returns 401 when password is wrong', async () => {
-    mockPrismaDb.adminConfig.findUnique.mockResolvedValue({
-      id: 'ac-1',
-      hashedPassword: 'hashed-password',
-      groupId: 'group-1',
-      group: { id: 'group-1', name: 'Test', inviteCode: 'ABC123', year: 2026 },
-    });
-    (bcrypt.compare as jest.Mock).mockResolvedValue(false);
-
-    const req = makePostRequest(url, { password: 'wrongpassword', groupId: 'group-1' });
-    const res = await adminAuth(req);
+  it('returns the same generic 401 when break-glass is not configured at all', async () => {
+    delete process.env.ADMIN_BREAKGLASS_PASSWORD;
+    const res = await adminAuth(makeAuthRequest({ password: 'anything' }));
     expect(res.status).toBe(401);
     const json = await res.json();
     expect(json.error).toBe('Invalid credentials');
   });
 
-  it('returns 200 on valid admin authentication', async () => {
-    const adminConfig = {
-      id: 'ac-1',
-      hashedPassword: 'hashed-password',
-      groupId: 'group-1',
-      group: { id: 'group-1', name: 'Test Group', inviteCode: 'ABC123', year: 2026 },
-    };
-    mockPrismaDb.adminConfig.findUnique.mockResolvedValue(adminConfig);
-    (bcrypt.compare as jest.Mock).mockResolvedValue(true);
-
-    const req = makePostRequest(url, { password: 'correct-password', groupId: 'group-1' });
-    const res = await adminAuth(req);
+  it('returns 200 and starts a break-glass admin session on the correct password', async () => {
+    const res = await adminAuth(makeAuthRequest({ password: BREAKGLASS_PASSWORD }));
     expect(res.status).toBe(200);
     const json = await res.json();
     expect(json.success).toBe(true);
-    expect(json.group).toEqual({
-      id: 'group-1',
-      name: 'Test Group',
-      inviteCode: 'ABC123',
-      year: 2026,
-    });
-    expect(bcrypt.compare).toHaveBeenCalledWith('correct-password', 'hashed-password');
+
+    expect(mockSession.isAdmin).toBe(true);
+    expect(mockSession.adminEmail).toBeUndefined();
+    expect(mockSession.adminLoginMethod).toBe('breakglass');
+    expect(mockSession.save).toHaveBeenCalled();
+  });
+
+  it('does not start an admin session on a failed attempt', async () => {
+    await adminAuth(makeAuthRequest({ password: 'wrong-password' }));
+    expect(mockSession.isAdmin).not.toBe(true);
+    expect(mockSession.save).not.toHaveBeenCalled();
+  });
+
+  it('is rate-limited after repeated attempts from the same IP', async () => {
+    const ip = '10.0.9.1';
+    for (let i = 0; i < 10; i++) {
+      const res = await adminAuth(makeAuthRequest({ password: 'wrong-password' }, ip));
+      expect(res.status).toBe(401);
+    }
+    const res = await adminAuth(makeAuthRequest({ password: 'wrong-password' }, ip));
+    expect(res.status).toBe(429);
   });
 });
 
@@ -1250,7 +1494,6 @@ describe('/api/blocks', () => {
   const url = 'http://localhost:3000/api/blocks';
   beforeEach(() => {
     mockSession.isAdmin = true;
-    mockSession.adminGroupId = 'group-1';
   });
 
   it('returns 400 when fields are missing', async () => {
@@ -1258,16 +1501,32 @@ describe('/api/blocks', () => {
     expect(res.status).toBe(400);
   });
 
-  it('returns 403 for a non-admin', async () => {
+  it('POST returns 403 for an anonymous session', async () => {
     delete mockSession.isAdmin;
     const res = await createBlock(makePostRequest(url, { groupId: 'group-1', personAId: 'a', personBId: 'b' }));
     expect(res.status).toBe(403);
+    expect(mockPrismaDb.block.create).not.toHaveBeenCalled();
   });
 
-  it('returns 403 when the admin does not own the group', async () => {
-    mockSession.adminGroupId = 'other-group';
+  it('POST returns 403 for a participant (non-admin)', async () => {
+    delete mockSession.isAdmin;
+    mockSession.isLoggedIn = true;
+    mockSession.personId = 'p-1';
+    mockSession.groupId = 'group-1';
     const res = await createBlock(makePostRequest(url, { groupId: 'group-1', personAId: 'a', personBId: 'b' }));
     expect(res.status).toBe(403);
+    expect(mockPrismaDb.block.create).not.toHaveBeenCalled();
+  });
+
+  // P4 collapse: no per-group ownership left - the super-admin can create a block for any group.
+  it('super-admin can create a block for a group other than any specific one', async () => {
+    mockPrismaDb.block.findFirst.mockResolvedValue(null);
+    mockPrismaDb.block.create.mockResolvedValue({ id: 'blk-2' });
+    const res = await createBlock(makePostRequest(url, { groupId: 'some-other-group', personAId: 'a', personBId: 'b' }));
+    expect(res.status).toBe(201);
+    expect(mockPrismaDb.block.create).toHaveBeenCalledWith({
+      data: { groupId: 'some-other-group', personAId: 'a', personBId: 'b' },
+    });
   });
 
   it('returns 400 for a self-block', async () => {
@@ -1292,7 +1551,7 @@ describe('/api/blocks', () => {
     expect(mockPrismaDb.block.create).not.toHaveBeenCalled();
   });
 
-  it('deletes a block by id for the owning admin', async () => {
+  it('deletes a block by id for the admin', async () => {
     mockPrismaDb.block.findUnique.mockResolvedValue({ id: 'blk-1', groupId: 'group-1' });
     mockPrismaDb.block.delete.mockResolvedValue({ id: 'blk-1' });
     const res = await deleteBlock(makeDeleteRequest(url + '?id=blk-1'));
@@ -1304,6 +1563,34 @@ describe('/api/blocks', () => {
     const res = await deleteBlock(makeDeleteRequest(url + '?id=nope'));
     expect(res.status).toBe(404);
   });
+
+  it('DELETE returns 403 for an anonymous session', async () => {
+    delete mockSession.isAdmin;
+    mockPrismaDb.block.findUnique.mockResolvedValue({ id: 'blk-1', groupId: 'group-1' });
+    const res = await deleteBlock(makeDeleteRequest(url + '?id=blk-1'));
+    expect(res.status).toBe(403);
+    expect(mockPrismaDb.block.delete).not.toHaveBeenCalled();
+  });
+
+  it('DELETE returns 403 for a participant (non-admin)', async () => {
+    delete mockSession.isAdmin;
+    mockSession.isLoggedIn = true;
+    mockSession.personId = 'p-1';
+    mockSession.groupId = 'group-1';
+    mockPrismaDb.block.findUnique.mockResolvedValue({ id: 'blk-1', groupId: 'group-1' });
+    const res = await deleteBlock(makeDeleteRequest(url + '?id=blk-1'));
+    expect(res.status).toBe(403);
+    expect(mockPrismaDb.block.delete).not.toHaveBeenCalled();
+  });
+
+  // P4 collapse: no per-group ownership left - the super-admin can delete a block from any group.
+  it('super-admin can delete a block from a group other than any specific one', async () => {
+    mockPrismaDb.block.findUnique.mockResolvedValue({ id: 'blk-3', groupId: 'some-other-group' });
+    mockPrismaDb.block.delete.mockResolvedValue({ id: 'blk-3' });
+    const res = await deleteBlock(makeDeleteRequest(url + '?id=blk-3'));
+    expect(res.status).toBe(200);
+    expect(mockPrismaDb.block.delete).toHaveBeenCalledWith({ where: { id: 'blk-3' } });
+  });
 });
 
 // ===========================================================================
@@ -1313,7 +1600,6 @@ describe('/api/pins', () => {
   const url = 'http://localhost:3000/api/pins';
   beforeEach(() => {
     mockSession.isAdmin = true;
-    mockSession.adminGroupId = 'group-1';
     (ensureRound as jest.Mock).mockResolvedValue({ id: 'round-1', groupId: 'group-1', year: 2026, status: 'draft' });
     (getActiveYear as jest.Mock).mockResolvedValue(2026);
   });
@@ -1323,10 +1609,28 @@ describe('/api/pins', () => {
     expect(res.status).toBe(400);
   });
 
-  it('returns 403 for a non-admin', async () => {
+  it('POST returns 403 for an anonymous session', async () => {
     delete mockSession.isAdmin;
     const res = await createPin(makePostRequest(url, { groupId: 'group-1', year: 2026, giverId: 'g', receiverId: 'r' }));
     expect(res.status).toBe(403);
+    expect(mockPrismaDb.forcedPin.upsert).not.toHaveBeenCalled();
+  });
+
+  it('POST returns 403 for a participant (non-admin)', async () => {
+    delete mockSession.isAdmin;
+    mockSession.isLoggedIn = true;
+    mockSession.personId = 'p-1';
+    mockSession.groupId = 'group-1';
+    const res = await createPin(makePostRequest(url, { groupId: 'group-1', year: 2026, giverId: 'g', receiverId: 'r' }));
+    expect(res.status).toBe(403);
+    expect(mockPrismaDb.forcedPin.upsert).not.toHaveBeenCalled();
+  });
+
+  // P4 collapse: no per-group ownership left - the super-admin can pin for any group.
+  it('super-admin can create a pin for a group other than any specific one', async () => {
+    mockPrismaDb.forcedPin.upsert.mockResolvedValue({ id: 'pin-2' });
+    const res = await createPin(makePostRequest(url, { groupId: 'some-other-group', year: 2026, giverId: 'g', receiverId: 'r' }));
+    expect(res.status).toBe(201);
   });
 
   it('returns 400 for a self-pin', async () => {
@@ -1349,11 +1653,39 @@ describe('/api/pins', () => {
     );
   });
 
-  it('deletes a pin by id for the owning admin on an unsent round', async () => {
+  it('deletes a pin by id for the admin on an unsent round', async () => {
     mockPrismaDb.forcedPin.findUnique.mockResolvedValue({ id: 'pin-1', round: { groupId: 'group-1', status: 'draft' } });
     mockPrismaDb.forcedPin.delete.mockResolvedValue({ id: 'pin-1' });
     const res = await deletePin(makeDeleteRequest(url + '?id=pin-1'));
     expect(res.status).toBe(200);
+  });
+
+  it('DELETE returns 403 for an anonymous session', async () => {
+    delete mockSession.isAdmin;
+    mockPrismaDb.forcedPin.findUnique.mockResolvedValue({ id: 'pin-1', round: { groupId: 'group-1', status: 'draft' } });
+    const res = await deletePin(makeDeleteRequest(url + '?id=pin-1'));
+    expect(res.status).toBe(403);
+    expect(mockPrismaDb.forcedPin.delete).not.toHaveBeenCalled();
+  });
+
+  it('DELETE returns 403 for a participant (non-admin)', async () => {
+    delete mockSession.isAdmin;
+    mockSession.isLoggedIn = true;
+    mockSession.personId = 'p-1';
+    mockSession.groupId = 'group-1';
+    mockPrismaDb.forcedPin.findUnique.mockResolvedValue({ id: 'pin-1', round: { groupId: 'group-1', status: 'draft' } });
+    const res = await deletePin(makeDeleteRequest(url + '?id=pin-1'));
+    expect(res.status).toBe(403);
+    expect(mockPrismaDb.forcedPin.delete).not.toHaveBeenCalled();
+  });
+
+  // P4 collapse: no per-group ownership left - the super-admin can delete a pin from any group.
+  it('super-admin can delete a pin from a group other than any specific one', async () => {
+    mockPrismaDb.forcedPin.findUnique.mockResolvedValue({ id: 'pin-3', round: { groupId: 'some-other-group', status: 'draft' } });
+    mockPrismaDb.forcedPin.delete.mockResolvedValue({ id: 'pin-3' });
+    const res = await deletePin(makeDeleteRequest(url + '?id=pin-3'));
+    expect(res.status).toBe(200);
+    expect(mockPrismaDb.forcedPin.delete).toHaveBeenCalledWith({ where: { id: 'pin-3' } });
   });
 
   it('ignores a client-supplied year and resolves the active year server-side', async () => {
@@ -1378,7 +1710,6 @@ describe('POST /api/rounds/generate', () => {
   ];
   beforeEach(() => {
     mockSession.isAdmin = true;
-    mockSession.adminGroupId = 'group-1';
     (ensureRound as jest.Mock).mockResolvedValue({ id: 'round-1', groupId: 'group-1', year: 2026, status: 'draft' });
     (getActiveYear as jest.Mock).mockResolvedValue(2026);
     (getPreviousYearExclusions as jest.Mock).mockResolvedValue([]);
@@ -1392,10 +1723,40 @@ describe('POST /api/rounds/generate', () => {
     expect(res.status).toBe(400);
   });
 
-  it('returns 403 for a non-admin', async () => {
+  it('returns 403 for an anonymous session', async () => {
     delete mockSession.isAdmin;
     const res = await generateRound(makePostRequest(url, { groupId: 'group-1' }));
     expect(res.status).toBe(403);
+    expect(mockPrismaDb.$transaction).not.toHaveBeenCalled();
+  });
+
+  it('returns 403 for a participant (non-admin)', async () => {
+    delete mockSession.isAdmin;
+    mockSession.isLoggedIn = true;
+    mockSession.personId = 'p-1';
+    mockSession.groupId = 'group-1';
+    const res = await generateRound(makePostRequest(url, { groupId: 'group-1' }));
+    expect(res.status).toBe(403);
+    expect(mockPrismaDb.$transaction).not.toHaveBeenCalled();
+  });
+
+  // P4 collapse: no per-group ownership left - the super-admin can generate for any group.
+  it('super-admin can generate a draw for a group other than any specific one', async () => {
+    mockPrismaDb.person.findMany.mockResolvedValue(threePeople);
+    (generateDraw as jest.Mock).mockReturnValue({
+      ok: true,
+      assignments: [
+        { giverId: 'p-1', receiverId: 'p-2' },
+        { giverId: 'p-2', receiverId: 'p-3' },
+        { giverId: 'p-3', receiverId: 'p-1' },
+      ],
+    });
+    mockPrismaDb.$transaction.mockResolvedValue([]);
+    mockPrismaDb.assignment.findMany.mockResolvedValue([]);
+
+    const res = await generateRound(makePostRequest(url, { groupId: 'some-other-group' }));
+    expect(res.status).toBe(200);
+    expect(ensureRound).toHaveBeenCalledWith('some-other-group', 2026);
   });
 
   it('refuses to regenerate a sent round', async () => {
@@ -1524,7 +1885,6 @@ describe('POST /api/rounds/send', () => {
   ];
   beforeEach(() => {
     mockSession.isAdmin = true;
-    mockSession.adminGroupId = 'group-1';
     (getActiveYear as jest.Mock).mockResolvedValue(2026);
     mockPrismaDb.round.findUnique.mockResolvedValue(generatedRound);
     mockPrismaDb.assignment.findMany.mockResolvedValue(assignments);
@@ -1535,9 +1895,28 @@ describe('POST /api/rounds/send', () => {
     expect((await sendRound(makePostRequest(url, {}))).status).toBe(400);
   });
 
-  it('returns 403 for a non-admin', async () => {
+  it('returns 403 for an anonymous session', async () => {
     delete mockSession.isAdmin;
-    expect((await sendRound(makePostRequest(url, { groupId: 'group-1' }))).status).toBe(403);
+    const res = await sendRound(makePostRequest(url, { groupId: 'group-1' }));
+    expect(res.status).toBe(403);
+    expect(mockPrismaDb.round.update).not.toHaveBeenCalled();
+  });
+
+  it('returns 403 for a participant (non-admin)', async () => {
+    delete mockSession.isAdmin;
+    mockSession.isLoggedIn = true;
+    mockSession.personId = 'p-1';
+    mockSession.groupId = 'group-1';
+    const res = await sendRound(makePostRequest(url, { groupId: 'group-1' }));
+    expect(res.status).toBe(403);
+    expect(mockPrismaDb.round.update).not.toHaveBeenCalled();
+  });
+
+  // P4 collapse: no per-group ownership left - the super-admin can send for any group.
+  it('super-admin can send matches for a group other than any specific one', async () => {
+    mockPrismaDb.round.findUnique.mockResolvedValue({ ...generatedRound, groupId: 'some-other-group' });
+    const res = await sendRound(makePostRequest(url, { groupId: 'some-other-group' }));
+    expect(res.status).toBe(200);
   });
 
   it('returns 400 when no round exists', async () => {
@@ -1613,7 +1992,6 @@ describe('POST /api/rounds/rollover', () => {
 
   beforeEach(() => {
     mockSession.isAdmin = true;
-    mockSession.adminGroupId = 'group-1';
     (getActiveYear as jest.Mock).mockResolvedValue(2026);
     mockPrismaDb.round.findUnique.mockResolvedValue(null);
     mockPrismaDb.person.findMany.mockResolvedValue(people);
@@ -1625,16 +2003,31 @@ describe('POST /api/rounds/rollover', () => {
     expect(res.status).toBe(400);
   });
 
-  it('returns 403 for a non-admin', async () => {
+  it('returns 403 for an anonymous session', async () => {
     delete mockSession.isAdmin;
     const res = await rolloverRound(makePostRequest(url, { groupId: 'group-1' }));
     expect(res.status).toBe(403);
+    expect(mockPrismaDb.$transaction).not.toHaveBeenCalled();
   });
 
-  it('returns 403 when the admin does not own the group', async () => {
-    mockSession.adminGroupId = 'other-group';
+  it('returns 403 for a participant (non-admin)', async () => {
+    delete mockSession.isAdmin;
+    mockSession.isLoggedIn = true;
+    mockSession.personId = 'p-1';
+    mockSession.groupId = 'group-1';
     const res = await rolloverRound(makePostRequest(url, { groupId: 'group-1' }));
     expect(res.status).toBe(403);
+    expect(mockPrismaDb.$transaction).not.toHaveBeenCalled();
+  });
+
+  // P4 collapse: no per-group ownership left - the super-admin can roll over any group.
+  it('super-admin can roll over a group other than any specific one', async () => {
+    const res = await rolloverRound(makePostRequest(url, { groupId: 'some-other-group' }));
+    expect(res.status).toBe(200);
+    expect(mockPrismaDb.group.update).toHaveBeenCalledWith({
+      where: { id: 'some-other-group' },
+      data: { year: 2027 },
+    });
   });
 
   it('rejects when the current round has an unsent draw (status generated)', async () => {
@@ -1729,7 +2122,6 @@ describe('POST /api/rounds/seed', () => {
 
   beforeEach(() => {
     mockSession.isAdmin = true;
-    mockSession.adminGroupId = 'group-1';
     (getActiveYear as jest.Mock).mockResolvedValue(2026);
     mockPrismaDb.person.findMany.mockResolvedValue(members);
     mockPrismaDb.round.upsert.mockResolvedValue({ id: 'round-seed', groupId: 'group-1', year: 2025, status: 'sent' });
@@ -1741,16 +2133,30 @@ describe('POST /api/rounds/seed', () => {
     expect(res.status).toBe(400);
   });
 
-  it('returns 403 for a non-admin', async () => {
+  it('returns 403 for an anonymous session', async () => {
     delete mockSession.isAdmin;
     const res = await seedRound(makePostRequest(url, validBody));
     expect(res.status).toBe(403);
+    expect(mockPrismaDb.round.upsert).not.toHaveBeenCalled();
   });
 
-  it('returns 403 when the admin does not own the group', async () => {
-    mockSession.adminGroupId = 'other-group';
+  it('returns 403 for a participant (non-admin)', async () => {
+    delete mockSession.isAdmin;
+    mockSession.isLoggedIn = true;
+    mockSession.personId = 'p-1';
+    mockSession.groupId = 'group-1';
     const res = await seedRound(makePostRequest(url, validBody));
     expect(res.status).toBe(403);
+    expect(mockPrismaDb.round.upsert).not.toHaveBeenCalled();
+  });
+
+  // P4 collapse: no per-group ownership left - the super-admin can seed for any group.
+  it('super-admin can seed history for a group other than any specific one', async () => {
+    const res = await seedRound(makePostRequest(url, { ...validBody, groupId: 'some-other-group' }));
+    expect(res.status).toBe(200);
+    expect(mockPrismaDb.round.upsert).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { groupId_year: { groupId: 'some-other-group', year: 2025 } } })
+    );
   });
 
   it('rejects a year that is not strictly before the active year', async () => {
@@ -1978,7 +2384,6 @@ describe('GET /api/auth/person-data', () => {
 describe('PATCH /api/people/[id] rotateLink', () => {
   beforeEach(() => {
     mockSession.isAdmin = true;
-    mockSession.adminGroupId = 'group-1';
     mockPrismaDb.person.findUnique.mockResolvedValue({ id: 'person-1', groupId: 'group-1' });
     mockPrismaDb.person.update.mockResolvedValue({ id: 'person-1', personalLinkToken: 'tok_test' });
   });

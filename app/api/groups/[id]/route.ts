@@ -12,8 +12,9 @@ export async function GET(
     const session = await getSession();
     const groupId = params.id;
 
-    // Verify user has access to this group
-    const userGroupId = session.isAdmin ? session.adminGroupId : session.groupId;
+    // Verify user has access to this group. Super-admin owns every group (so
+    // this is always satisfied for an admin); a participant only their own.
+    const userGroupId = session.isAdmin ? groupId : session.groupId;
     if (userGroupId !== groupId) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
@@ -49,8 +50,8 @@ export async function PATCH(
     const session = await getSession();
     const groupId = params.id;
 
-    // Only admins can modify groups
-    if (!session.isAdmin || session.adminGroupId !== groupId) {
+    // Only the super-admin can modify groups (owns every group).
+    if (!session.isAdmin) {
       return NextResponse.json({ error: "Admin authentication required" }, { status: 403 });
     }
 
