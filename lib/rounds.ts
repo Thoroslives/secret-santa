@@ -41,7 +41,7 @@ export async function getPreviousYearExclusions(
 ): Promise<Array<{ giverId: string; receiverId: string }>> {
   if (memory <= 0) return [];
   const priorRounds = await prisma.round.findMany({
-    where: { groupId, year: { lt: activeYear } },
+    where: { groupId, year: { lt: activeYear }, assignments: { some: {} } },
     orderBy: { year: "desc" },
     take: memory,
     select: { id: true },

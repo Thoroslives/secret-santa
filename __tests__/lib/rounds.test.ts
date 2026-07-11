@@ -134,10 +134,34 @@ describe('getPreviousYearExclusions', () => {
     await getPreviousYearExclusions('group-1', 2027, 3);
 
     expect(mockPrismaDb.round.findMany).toHaveBeenCalledWith({
-      where: { groupId: 'group-1', year: { lt: 2027 } },
+      where: { groupId: 'group-1', year: { lt: 2027 }, assignments: { some: {} } },
       orderBy: { year: 'desc' },
       take: 3,
       select: { id: true },
     });
+  });
+
+  // Rollover eagerly creates the NEXT round as soon as a group moves on, even
+  // if nobody has drawn yet. Rolling over twice without drawing (Y -> Y+1
+  // undrawn -> Y+2) leaves an empty round sitting between Y and the active
+  // year. Without filtering, a memory=1 window at Y+2 would look only at the
+  // empty Y+1 round and exclude nobody - silently skipping year Y's real
+  // pairs, which is exactly the repeat the memory setting exists to prevent.
+  it('only considers prior rounds that actually have assignments, so an empty rolled-over round is skipped in favour of an earlier drawn round', async () => {
+    // Simulates what a correctly-filtered DB call returns: round Y+1 (empty)
+    // is never in this list even though it is the most recent prior round -
+    // round Y (with real assignments) is what take:1 should surface instead.
+    mockPrismaDb.round.findMany.mockResolvedValue([{ id: 'round-Y' }]);
+    mockPrismaDb.assignment.findMany.mockResolvedValue([{ giverId: 'p-1', receiverId: 'p-2' }]);
+
+    const result = await getPreviousYearExclusions('group-1', 2028, 1);
+
+    expect(mockPrismaDb.round.findMany).toHaveBeenCalledWith({
+      where: { groupId: 'group-1', year: { lt: 2028 }, assignments: { some: {} } },
+      orderBy: { year: 'desc' },
+      take: 1,
+      select: { id: true },
+    });
+    expect(result).toEqual([{ giverId: 'p-1', receiverId: 'p-2' }]);
   });
 });
