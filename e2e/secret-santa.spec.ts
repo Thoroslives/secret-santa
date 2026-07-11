@@ -280,48 +280,95 @@ test.describe("Login Page (participant, email link)", () => {
 });
 
 test.describe("Admin Portal Login", () => {
-  test("redirects to home if no groupId in sessionStorage", async ({
+  // playwright.config.ts sets ADMIN_BREAKGLASS_PASSWORD for the e2e webServer
+  // and leaves OIDC env unset, so throughout this block: break-glass is
+  // configured (its password field renders unwrapped, since with no OIDC it
+  // is the only/fallback method) and the OIDC button must never appear.
+
+  test("renders the Admin Portal heading with the break-glass form and no dead SSO button", async ({
     page,
   }) => {
-    await page.goto("/admin");
-    await expect(page).toHaveURL("/");
-  });
-
-  test("shows admin login form when groupId is set", async ({ page }) => {
-    await page.goto("/");
-    await page.evaluate(() => {
-      sessionStorage.setItem("groupId", "test-group-id");
-      sessionStorage.setItem("groupName", "Test Family");
-    });
     await page.goto("/admin");
 
     await expect(
       page.getByRole("heading", { name: /Admin Portal/i })
     ).toBeVisible();
     await expect(page.getByLabel(/Admin Password/i)).toBeVisible();
+    await expect(page.getByRole("button", { name: /^Login$/i })).toBeVisible();
+    // OIDC isn't configured in this env - the SSO link must be absent, not
+    // just hidden, so a break-glass-only deployment never ships a dead button.
     await expect(
-      page.getByRole("button", { name: /Login/i })
+      page.getByRole("link", { name: /Sign in with NorthAuth/i })
+    ).toHaveCount(0);
+  });
+
+  test("has a back to home link", async ({ page }) => {
+    await page.goto("/admin");
+    await expect(page.getByRole("link", { name: /Back to Home/i })).toBeVisible();
+  });
+
+  test("submits break-glass password to /api/admin/auth and lands on /admin/dashboard on success", async ({
+    page,
+  }) => {
+    await page.route("**/api/admin/auth", async (route) => {
+      const request = route.request();
+      expect(request.method()).toBe("POST");
+      // Binding constraint: body is {password} only, no groupId.
+      expect(request.postDataJSON()).toEqual({ password: "correct-horse-battery" });
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ success: true }),
+      });
+    });
+
+    // The dashboard independently verifies the session via /api/auth/session
+    // on mount (see app/admin/dashboard/page.tsx), so that also needs to
+    // report an authenticated admin or it bounces straight back to /admin.
+    await page.route("**/api/auth/session", async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ authenticated: true, isAdmin: true }),
+      });
+    });
+
+    await page.goto("/admin");
+    await page.getByLabel(/Admin Password/i).fill("correct-horse-battery");
+    await page.getByRole("button", { name: /^Login$/i }).click();
+
+    await expect(page).toHaveURL(/\/admin\/dashboard/);
+  });
+
+  test("shows the server's error message inline on failed break-glass login", async ({
+    page,
+  }) => {
+    await page.route("**/api/admin/auth", async (route) => {
+      await route.fulfill({
+        status: 401,
+        contentType: "application/json",
+        body: JSON.stringify({ error: "Invalid credentials" }),
+      });
+    });
+
+    await page.goto("/admin");
+    await page.getByLabel(/Admin Password/i).fill("wrong-password");
+    await page.getByRole("button", { name: /^Login$/i }).click();
+
+    await expect(page.getByText(/Invalid credentials/i)).toBeVisible();
+    await expect(page).toHaveURL(/\/admin$/);
+  });
+
+  test("maps a known ?error= code to its plain message", async ({ page }) => {
+    await page.goto("/admin?error=not_authorized");
+    await expect(
+      page.getByText(/not allowed to administer this app/i)
     ).toBeVisible();
   });
 
-  test("shows group name on admin page", async ({ page }) => {
-    await page.goto("/");
-    await page.evaluate(() => {
-      sessionStorage.setItem("groupId", "test-group-id");
-      sessionStorage.setItem("groupName", "Test Family");
-    });
-    await page.goto("/admin");
-    await expect(page.getByText("Test Family")).toBeVisible();
-  });
-
-  test("has back to home link", async ({ page }) => {
-    await page.goto("/");
-    await page.evaluate(() => {
-      sessionStorage.setItem("groupId", "test-group-id");
-      sessionStorage.setItem("groupName", "Test Family");
-    });
-    await page.goto("/admin");
-    await expect(page.getByRole("link", { name: /Back to Home/i })).toBeVisible();
+  test("does not reflect an unknown ?error= value", async ({ page }) => {
+    await page.goto("/admin?error=totally_bogus_value_xyz");
+    await expect(page.getByText(/totally_bogus_value_xyz/i)).toHaveCount(0);
   });
 });
 
