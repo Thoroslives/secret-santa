@@ -167,9 +167,13 @@ values.
 Make sure to set these in your production environment:
 
 ```
-DATABASE_URL=your-production-database-url
-ADMIN_PASSWORD=your-secure-admin-password
+DATABASE_URL=file:/data/santa.db
+SESSION_SECRET=your-session-encryption-key-min-32-chars
+ADMIN_BREAKGLASS_PASSWORD=your-strong-break-glass-password
 ```
+
+For OIDC and the full list of admin-auth variables, see the "Admin
+Authentication" section above and `.env.example`.
 
 ### Deploy Notes (Docker)
 
