@@ -83,7 +83,9 @@ export async function POST(request: NextRequest) {
           a.giver.email,
           a.giver.name,
           group?.name || "Secret Santa",
-          link
+          link,
+          group?.organiserName,
+          group?.personalMessage
         );
         if (ok) sent++;
         else failed++;

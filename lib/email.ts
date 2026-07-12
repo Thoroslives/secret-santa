@@ -70,6 +70,8 @@ interface EmailContent {
   link: string;
   bodyAfter: string;
   groupName: string;
+  organiserName?: string | null;
+  personalMessage?: string | null;
 }
 
 function buildEmail(c: EmailContent): { html: string; text: string } {
@@ -78,7 +80,14 @@ function buildEmail(c: EmailContent): { html: string; text: string } {
   const bodyAfter = escapeHtml(c.bodyAfter);
   const ctaLabel = escapeHtml(c.ctaLabel);
   const link = escapeHtml(c.link);
-  const footer = "Sent from your family&#39;s Secret Santa. This is an automated message, no need to reply.";
+  // Optional per-group personalisation: the organiser's name (email sign-off)
+  // and a free-text note. Both trimmed to empty when unset, so the blocks and
+  // sign-off simply drop out.
+  const organiser = c.organiserName?.trim() || "";
+  const message = c.personalMessage?.trim() || "";
+  const footer = organiser
+    ? `Sent by ${escapeHtml(organiser)}. This is an automated message, no need to reply.`
+    : "Sent from your family&#39;s Secret Santa. This is an automated message, no need to reply.";
 
   const html = `<!DOCTYPE html>
 <html lang="en">
@@ -106,6 +115,14 @@ function buildEmail(c: EmailContent): { html: string; text: string } {
               <p style="margin:0; font-family:${SANS}; font-size:16px; line-height:1.6; color:${C.ink};">${intro}</p>
             </td>
           </tr>
+          ${message ? `<tr>
+            <td style="padding:6px 32px 2px 32px;">
+              <div style="border:1px solid ${C.border}; background-color:${C.bg}; border-radius:8px; padding:14px 16px;">
+                <p style="margin:0 0 4px 0; font-family:${SANS}; font-size:12px; text-transform:uppercase; letter-spacing:0.04em; color:${C.muted};">A note from ${organiser ? escapeHtml(organiser) : "your organiser"}</p>
+                <p style="margin:0; font-family:${SANS}; font-size:15px; line-height:1.6; color:${C.ink};">${escapeHtml(message)}</p>
+              </div>
+            </td>
+          </tr>` : ""}
           <tr>
             <td style="padding:8px 32px 4px 32px;">
               <table role="presentation" cellpadding="0" cellspacing="0" style="margin:18px auto;">
@@ -146,12 +163,12 @@ ${c.groupName}
 ${c.heading}
 
 ${c.intro}
-
+${message ? `\n${organiser || "Your organiser"} says:\n${message}\n` : ""}
 ${c.ctaLabel}: ${c.link}
 
 ${c.bodyAfter}
 
-Sent from your family's Secret Santa. This is an automated message, no need to reply.
+${organiser ? `Sent by ${organiser}.` : "Sent from your family's Secret Santa."} This is an automated message, no need to reply.
 `;
 
   return { html, text };
@@ -189,7 +206,9 @@ export async function sendLoginLinkEmail(
   email: string,
   name: string,
   groupName: string,
-  link: string
+  link: string,
+  organiserName?: string | null,
+  personalMessage?: string | null
 ): Promise<boolean> {
   return sendThemedEmail(
     email,
@@ -202,6 +221,8 @@ export async function sendLoginLinkEmail(
       link,
       bodyAfter: "It is yours to keep. Bookmark it and use it any time to get back to your wishlist. If you didn't ask for this, you can safely ignore this email.",
       groupName,
+      organiserName,
+      personalMessage,
     },
     'Failed to send login link email:'
   );
@@ -215,7 +236,9 @@ export async function sendMatchReadyEmail(
   email: string,
   name: string,
   groupName: string,
-  link: string
+  link: string,
+  organiserName?: string | null,
+  personalMessage?: string | null
 ): Promise<boolean> {
   return sendThemedEmail(
     email,
@@ -228,6 +251,8 @@ export async function sendMatchReadyEmail(
       link,
       bodyAfter: 'Tap through to see who you are buying for this year and take a look at their wishlist. Keep your link handy to check back any time.',
       groupName,
+      organiserName,
+      personalMessage,
     },
     'Failed to send match-ready email:'
   );

@@ -42,7 +42,9 @@ export async function POST(request: NextRequest) {
           normalized,
           person.name,
           person.group.name,
-          `${process.env.NEXTAUTH_URL}/p/${person.personalLinkToken}`
+          `${process.env.NEXTAUTH_URL}/p/${person.personalLinkToken}`,
+          person.group.organiserName,
+          person.group.personalMessage
         );
       } catch (sendError) {
         // Never let a send failure leak through - log it, keep the response generic.

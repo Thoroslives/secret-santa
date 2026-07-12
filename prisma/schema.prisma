@@ -27,6 +27,8 @@ model Group {
   updatedAt      DateTime @updatedAt
   suggestionCap      Int @default(3)
   previousYearMemory Int @default(1)
+  organiserName      String?  // organiser's name, shown as the email sign-off
+  personalMessage    String?  // optional organiser note included in participant emails
 
   // Relations
   people       Person[]

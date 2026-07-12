@@ -26,6 +26,8 @@ interface GroupSummary {
   id: string;
   name: string;
   year: number;
+  organiserName?: string | null;
+  personalMessage?: string | null;
 }
 
 export default function AdminDashboard() {
@@ -63,6 +65,8 @@ export default function AdminDashboard() {
   const [budgetCurrency, setBudgetCurrency] = useState("USD");
   const [suggestionCap, setSuggestionCap] = useState(3);
   const [previousYearMemory, setPreviousYearMemory] = useState(1);
+  const [organiserName, setOrganiserName] = useState("");
+  const [personalMessage, setPersonalMessage] = useState("");
   const [seedYear, setSeedYear] = useState("");
   const [seedPairs, setSeedPairs] = useState<{ giverId: string; receiverId: string }[]>([
     { giverId: "", receiverId: "" },
@@ -200,6 +204,8 @@ export default function AdminDashboard() {
         if (typeof groupData.group.previousYearMemory === "number") {
           setPreviousYearMemory(groupData.group.previousYearMemory);
         }
+        setOrganiserName(groupData.group.organiserName || "");
+        setPersonalMessage(groupData.group.personalMessage || "");
       }
 
       setLoading(false);
@@ -473,6 +479,37 @@ export default function AdminDashboard() {
     }
   };
 
+  const handleUpdateOrganiser = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError("");
+    setSuccessMessage("");
+
+    if (organiserName.length > 100) {
+      setError("Organiser name must be 100 characters or fewer");
+      return;
+    }
+    if (personalMessage.length > 2000) {
+      setError("Personal message must be 2000 characters or fewer");
+      return;
+    }
+
+    try {
+      const res = await fetch(`/api/groups/${activeGroupId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ organiserName, personalMessage }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data.error || "Failed to update organiser note");
+        return;
+      }
+      setSuccessMessage("Organiser note updated successfully!");
+    } catch (err) {
+      setError("An error occurred");
+    }
+  };
+
   const handleUpdateSettings = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
@@ -719,6 +756,52 @@ export default function AdminDashboard() {
                   className="w-full rounded-sm bg-primary py-2 font-semibold text-primary-on transition-colors hover:bg-primary-hover"
                 >
                   Update Budget
+                </button>
+              </form>
+            </div>
+
+            {/* Organiser Note */}
+            <div className="rounded-md border border-border bg-surface p-6 shadow-elev-1">
+              <h2 className="mb-4 text-xl font-semibold text-ink-strong">Organiser note</h2>
+              <form onSubmit={handleUpdateOrganiser} className="space-y-4">
+                <div>
+                  <label htmlFor="organiserName" className="mb-2 block text-sm font-medium text-ink-muted">
+                    Organiser name <span className="text-ink-muted">(optional)</span>
+                  </label>
+                  <input
+                    type="text"
+                    id="organiserName"
+                    value={organiserName}
+                    onChange={(e) => setOrganiserName(e.target.value)}
+                    maxLength={100}
+                    className="w-full rounded-sm border border-border bg-raised px-4 py-2 text-ink placeholder-ink-muted focus:border-transparent focus:ring-2 focus:ring-accent"
+                    placeholder="e.g. Aunt Mabel"
+                  />
+                </div>
+
+                <div>
+                  <label htmlFor="personalMessage" className="mb-2 block text-sm font-medium text-ink-muted">
+                    Personal message <span className="text-ink-muted">(optional)</span>
+                  </label>
+                  <textarea
+                    id="personalMessage"
+                    value={personalMessage}
+                    onChange={(e) => setPersonalMessage(e.target.value)}
+                    maxLength={2000}
+                    rows={4}
+                    className="w-full rounded-sm border border-border bg-raised px-4 py-2 text-ink placeholder-ink-muted focus:border-transparent focus:ring-2 focus:ring-accent"
+                    placeholder="A note shown in the emails participants receive."
+                  />
+                  <p className="mt-1 text-xs text-ink-muted">
+                    Shown as a note in the sign-in and match-ready emails for this group. Independent per group.
+                  </p>
+                </div>
+
+                <button
+                  type="submit"
+                  className="w-full rounded-sm bg-primary py-2 font-semibold text-primary-on transition-colors hover:bg-primary-hover"
+                >
+                  Save organiser note
                 </button>
               </form>
             </div>

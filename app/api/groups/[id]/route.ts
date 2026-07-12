@@ -55,7 +55,7 @@ export async function PATCH(
       return NextResponse.json({ error: "Admin authentication required" }, { status: 403 });
     }
 
-    const { budgetAmount, budgetCurrency, suggestionCap, previousYearMemory } = await request.json();
+    const { budgetAmount, budgetCurrency, suggestionCap, previousYearMemory, organiserName, personalMessage } = await request.json();
 
     // Validate currency if provided
     const validCurrencies = [
@@ -98,25 +98,56 @@ export async function PATCH(
       );
     }
 
+    // Optional per-group email personalisation. Bounded so a runaway paste can't
+    // bloat a group row or the emails built from it.
+    if (organiserName !== undefined && organiserName !== null && String(organiserName).length > 100) {
+      return NextResponse.json(
+        { error: "organiserName must be 100 characters or fewer" },
+        { status: 400 }
+      );
+    }
+    if (personalMessage !== undefined && personalMessage !== null && String(personalMessage).length > 2000) {
+      return NextResponse.json(
+        { error: "personalMessage must be 2000 characters or fewer" },
+        { status: 400 }
+      );
+    }
+
     const data: {
-      budgetAmount: number | null;
-      budgetCurrency: string;
+      budgetAmount?: number | null;
+      budgetCurrency?: string;
       updatedAt: Date;
       suggestionCap?: number;
       previousYearMemory?: number;
+      organiserName?: string | null;
+      personalMessage?: string | null;
     } = {
-      budgetAmount: budgetAmount,
-      budgetCurrency: budgetCurrency || "USD",
       updatedAt: new Date(),
     };
 
-    // Guard-and-merge: only include a key when the caller actually sent it,
-    // so an omitted field is never overwritten (no `undefined` writes).
+    // Guard-and-merge: only include a key when the caller actually sent it, so
+    // an omitted field is never overwritten. This makes a partial PATCH (e.g.
+    // saving only the organiser note, or only the suggestion cap) safe - it no
+    // longer resets budgetCurrency to USD.
+    if (budgetAmount !== undefined) {
+      data.budgetAmount = budgetAmount;
+    }
+    if (budgetCurrency !== undefined) {
+      data.budgetCurrency = budgetCurrency;
+    }
     if (suggestionCap !== undefined) {
       data.suggestionCap = suggestionCap;
     }
     if (previousYearMemory !== undefined) {
       data.previousYearMemory = previousYearMemory;
+    }
+    // Trim, and store an emptied field as null (not "") so it cleanly drops out
+    // of the emails. Omitted (undefined) means "leave as-is" per the guard.
+    if (organiserName !== undefined) {
+      data.organiserName = String(organiserName).trim() || null;
+    }
+    if (personalMessage !== undefined) {
+      data.personalMessage = String(personalMessage).trim() || null;
     }
 
     const group = await prisma.group.update({

@@ -401,6 +401,64 @@ describe('PATCH /api/groups/[id]', () => {
     );
   });
 
+  it('persists organiserName and personalMessage when provided', async () => {
+    mockPrismaDb.group.update.mockResolvedValue({ id: 'group-1', organiserName: 'Aunt Mabel', personalMessage: 'Budget is $50' });
+    const req = makePatchRequest('http://localhost:3000/api/groups/group-1', {
+      organiserName: 'Aunt Mabel',
+      personalMessage: 'Budget is $50',
+    });
+    const res = await patchGroup(req, { params: { id: 'group-1' } } as any);
+    expect(res.status).toBe(200);
+    expect(mockPrismaDb.group.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ organiserName: 'Aunt Mabel', personalMessage: 'Budget is $50' }),
+      }),
+    );
+  });
+
+  it('stores blank organiserName/personalMessage as null (trimmed)', async () => {
+    mockPrismaDb.group.update.mockResolvedValue({ id: 'group-1' });
+    const req = makePatchRequest('http://localhost:3000/api/groups/group-1', {
+      organiserName: '   ',
+      personalMessage: '',
+    });
+    const res = await patchGroup(req, { params: { id: 'group-1' } } as any);
+    expect(res.status).toBe(200);
+    expect(mockPrismaDb.group.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ organiserName: null, personalMessage: null }),
+      }),
+    );
+  });
+
+  it('leaves organiserName/personalMessage untouched when the field is omitted', async () => {
+    mockPrismaDb.group.update.mockResolvedValue({ id: 'group-1' });
+    const req = makePatchRequest('http://localhost:3000/api/groups/group-1', { budgetAmount: 50, budgetCurrency: 'USD' });
+    const res = await patchGroup(req, { params: { id: 'group-1' } } as any);
+    expect(res.status).toBe(200);
+    const data = mockPrismaDb.group.update.mock.calls[0][0].data;
+    expect(data).not.toHaveProperty('organiserName');
+    expect(data).not.toHaveProperty('personalMessage');
+  });
+
+  it('returns 400 when personalMessage is too long', async () => {
+    const req = makePatchRequest('http://localhost:3000/api/groups/group-1', {
+      personalMessage: 'x'.repeat(2001),
+    });
+    const res = await patchGroup(req, { params: { id: 'group-1' } } as any);
+    expect(res.status).toBe(400);
+    expect(mockPrismaDb.group.update).not.toHaveBeenCalled();
+  });
+
+  it('returns 400 when organiserName is too long', async () => {
+    const req = makePatchRequest('http://localhost:3000/api/groups/group-1', {
+      organiserName: 'x'.repeat(101),
+    });
+    const res = await patchGroup(req, { params: { id: 'group-1' } } as any);
+    expect(res.status).toBe(400);
+    expect(mockPrismaDb.group.update).not.toHaveBeenCalled();
+  });
+
   it('returns 400 for invalid currency code', async () => {
     const req = makePatchRequest('http://localhost:3000/api/groups/group-1', {
       budgetAmount: 50,
@@ -659,6 +717,8 @@ describe('POST /api/auth/email-link', () => {
       'Alice',
       'Test Group',
       expect.stringContaining('/p/tok_abc123'),
+      undefined,
+      undefined,
     );
   });
 
@@ -674,8 +734,8 @@ describe('POST /api/auth/email-link', () => {
     expect(json.message).toBe('If this email is registered, a login link has been sent.');
 
     expect(sendLoginLinkEmail).toHaveBeenCalledTimes(2);
-    expect(sendLoginLinkEmail).toHaveBeenCalledWith('alice@example.com', 'Alice', 'Family A', expect.stringContaining('/p/tok_a'));
-    expect(sendLoginLinkEmail).toHaveBeenCalledWith('alice@example.com', 'Alice', 'Family B', expect.stringContaining('/p/tok_b'));
+    expect(sendLoginLinkEmail).toHaveBeenCalledWith('alice@example.com', 'Alice', 'Family A', expect.stringContaining('/p/tok_a'), undefined, undefined);
+    expect(sendLoginLinkEmail).toHaveBeenCalledWith('alice@example.com', 'Alice', 'Family B', expect.stringContaining('/p/tok_b'), undefined, undefined);
   });
 
   it('returns the generic message and still attempts the other sends when one send fails (no enumeration)', async () => {
@@ -1956,7 +2016,7 @@ describe('POST /api/rounds/send', () => {
     // Alice (active+email) mailed; Bob (active, no email) not; Zoe (inactive) skipped.
     // sendMatchReadyEmail gets only the GIVER's name - the drawee is never passed.
     expect(sendMatchReadyEmail).toHaveBeenCalledTimes(1);
-    expect(sendMatchReadyEmail).toHaveBeenCalledWith('alice@x.com', 'Alice', 'Smiths', expect.stringContaining('/p/tokA'));
+    expect(sendMatchReadyEmail).toHaveBeenCalledWith('alice@x.com', 'Alice', 'Smiths', expect.stringContaining('/p/tokA'), undefined, undefined);
     expect(json.sent).toBe(1);
     expect(json.shareLinks).toHaveLength(2); // Alice + Bob, not inactive Zoe
     // the round looked up was the server-resolved active year, not a client one

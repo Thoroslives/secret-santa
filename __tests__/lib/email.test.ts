@@ -149,6 +149,52 @@ describe('sendMatchReadyEmail', () => {
   });
 });
 
+describe('email organiser personalisation', () => {
+  const link = 'https://example.com/p/tok_org';
+  const lastMail = () => nodemailer.default.createTransport().sendMail.mock.calls.at(-1)[0];
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    process.env.EMAIL_FROM = 'Santa <santa@test.com>';
+  });
+  afterEach(() => {
+    delete process.env.EMAIL_FROM;
+  });
+
+  it('includes the organiser name and personal message in the match-ready email when set', async () => {
+    await sendMatchReadyEmail('u@e.com', 'Alice', 'Family', link, 'Aunt Mabel', 'Budget is $50, lists by Dec 1!');
+    const m = lastMail();
+    expect(m.html).toContain('Aunt Mabel');
+    expect(m.html).toContain('Budget is $50, lists by Dec 1!');
+    expect(m.text).toContain('Aunt Mabel');
+    expect(m.text).toContain('Budget is $50, lists by Dec 1!');
+  });
+
+  it('includes the organiser name and personal message in the login-link email when set', async () => {
+    await sendLoginLinkEmail('u@e.com', 'Alice', 'Family', link, 'Aunt Mabel', 'Welcome to the draw!');
+    const m = lastMail();
+    expect(m.html).toContain('Aunt Mabel');
+    expect(m.html).toContain('Welcome to the draw!');
+    expect(m.text).toContain('Welcome to the draw!');
+  });
+
+  it('omits the note block and organiser sign-off gracefully when unset', async () => {
+    await sendMatchReadyEmail('u@e.com', 'Alice', 'Family', link);
+    const m = lastMail();
+    expect(m.html).not.toContain('undefined');
+    expect(m.text).not.toContain('undefined');
+    expect(m.html).not.toMatch(/note from/i);
+  });
+
+  it('still never names the drawee even with organiser personalisation set', async () => {
+    await sendMatchReadyEmail('u@e.com', 'Alice', 'Family', link, 'Aunt Mabel', 'Have fun!');
+    const m = lastMail();
+    expect(m.html).toContain('Alice');
+    expect(m.html).not.toMatch(/\bBob\b/);
+    expect(m.text).not.toMatch(/\bBob\b/);
+  });
+});
+
 describe('testEmailConfig', () => {
   beforeEach(() => {
     jest.clearAllMocks();
