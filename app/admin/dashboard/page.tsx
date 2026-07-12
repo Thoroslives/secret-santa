@@ -72,6 +72,13 @@ export default function AdminDashboard() {
   const [seedPairs, setSeedPairs] = useState<{ giverId: string; receiverId: string }[]>([
     { giverId: "", receiverId: "" },
   ]);
+  // Read-back state for the seed section: how many pairs are recorded for the
+  // year in the form, every past year that already has pairs, inline save
+  // feedback next to the form, and whether the collapsible box is open.
+  const [seedRecorded, setSeedRecorded] = useState(0);
+  const [seededYears, setSeededYears] = useState<{ year: number; count: number }[]>([]);
+  const [seedMessage, setSeedMessage] = useState<{ kind: "success" | "error"; text: string } | null>(null);
+  const [seedOpen, setSeedOpen] = useState(false);
   const router = useRouter();
 
   useEffect(() => {
@@ -141,6 +148,10 @@ export default function AdminDashboard() {
     setSuccessMessage("");
     setShareLinks([]);
     setSeedPairs([{ giverId: "", receiverId: "" }]);
+    setSeedRecorded(0);
+    setSeededYears([]);
+    setSeedMessage(null);
+    setSeedOpen(false);
     loadData(groupId);
   };
 
@@ -374,6 +385,41 @@ export default function AdminDashboard() {
     }
   };
 
+  // Load whatever pairs are already recorded for the selected seed year, so the
+  // table shows and edits real history instead of always starting blank.
+  // Best-effort: a failed read just leaves the form usable. Re-runs whenever the
+  // group or the year changes (see the effect below) and after a successful save.
+  const loadSeed = async (groupId: string, year: string) => {
+    if (!groupId || year.trim().length !== 4) return;
+    const yearNum = parseInt(year, 10);
+    if (!Number.isInteger(yearNum)) return;
+    try {
+      const res = await fetch(`/api/rounds/seed?groupId=${groupId}&year=${yearNum}`);
+      if (!res.ok) return;
+      const data = await res.json();
+      const pairs: { giverId: string; receiverId: string }[] = data.pairs || [];
+      setSeedPairs(pairs.length > 0 ? pairs : [{ giverId: "", receiverId: "" }]);
+      setSeedRecorded(typeof data.count === "number" ? data.count : pairs.length);
+      setSeededYears(data.seededYears || []);
+      // Reveal the box on load when there is history, so a refresh visibly
+      // shows what has been recorded instead of a collapsed, blank form.
+      if ((data.count || 0) > 0) setSeedOpen(true);
+    } catch {
+      // best-effort read-back - leave the form as-is
+    }
+  };
+
+  useEffect(() => {
+    if (activeGroupId && seedYear) {
+      // Clear any prior save feedback when the year/group changes so a "Saved
+      // 2025" note doesn't linger over a different year. The post-save re-load
+      // calls loadSeed directly (not this effect), so its success note survives.
+      setSeedMessage(null);
+      loadSeed(activeGroupId, seedYear);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeGroupId, seedYear]);
+
   const handleAddSeedRow = () => {
     setSeedPairs((rows) => [...rows, { giverId: "", receiverId: "" }]);
   };
@@ -386,10 +432,11 @@ export default function AdminDashboard() {
     e.preventDefault();
     setError("");
     setSuccessMessage("");
+    setSeedMessage(null);
 
     const yearNum = parseInt(seedYear, 10);
     if (!seedYear.trim() || isNaN(yearNum)) {
-      setError("Enter a valid year");
+      setSeedMessage({ kind: "error", text: "Enter a valid year" });
       return;
     }
 
@@ -398,7 +445,7 @@ export default function AdminDashboard() {
       .map((p) => ({ giverId: p.giverId, receiverId: p.receiverId }));
 
     if (pairs.length === 0) {
-      setError("Add at least one giver and receiver pair");
+      setSeedMessage({ kind: "error", text: "Add at least one giver and receiver pair" });
       return;
     }
 
@@ -410,13 +457,15 @@ export default function AdminDashboard() {
       });
       const data = await res.json();
       if (!res.ok) {
-        setError(data.error || "Failed to save last year's pairs");
+        setSeedMessage({ kind: "error", text: data.error || "Failed to save last year's pairs" });
         return;
       }
-      setSuccessMessage(`Saved ${data.seeded} pair(s) for ${data.year}.`);
-      setSeedPairs([{ giverId: "", receiverId: "" }]);
+      setSeedMessage({ kind: "success", text: `Saved ${data.seeded} pair(s) for ${data.year}.` });
+      // Re-load so the table reflects exactly what is now stored (instead of
+      // wiping to a blank row) and the recorded count / summary refresh.
+      await loadSeed(activeGroupId, String(yearNum));
     } catch (err) {
-      setError("An error occurred");
+      setSeedMessage({ kind: "error", text: "An error occurred" });
     }
   };
 
@@ -970,16 +1019,32 @@ export default function AdminDashboard() {
             </div>
           </div>
 
-          {/* Seed last year's pairs - one-time backfill so this year's draw can
-              avoid repeating them, even before this app has ever run a draw. */}
-          <details className="mt-8 rounded-md border border-border bg-surface p-6 shadow-elev-1">
+          {/* Seed last year's pairs - hand-record past pairs so this year's draw
+              avoids repeating them. Editable, iterative table: the form loads
+              whatever is already recorded for the chosen year and replaces it on
+              save, so what is stored is always visible (not a write-only form). */}
+          <details
+            open={seedOpen}
+            onToggle={(e) => setSeedOpen(e.currentTarget.open)}
+            className="mt-8 rounded-md border border-border bg-surface p-6 shadow-elev-1"
+          >
             <summary className="cursor-pointer text-xl font-semibold text-ink-strong">
               Seed last year&apos;s pairs
+              {seedRecorded > 0 && (
+                <span className="ml-2 text-sm font-normal text-ink-muted">
+                  {seedRecorded} recorded for {seedYear}
+                </span>
+              )}
             </summary>
             <p className="mb-4 mt-2 text-sm text-ink-muted">
               Record who gave to whom last year by hand, so this year&apos;s draw knows to avoid repeating those
               pairs. Only needed once, to backfill history from before this app was used.
             </p>
+            {seededYears.length > 0 && (
+              <p className="mb-4 text-sm text-ink-muted">
+                Recorded so far: {seededYears.map((y) => `${y.year} (${y.count})`).join(", ")}
+              </p>
+            )}
             <form onSubmit={handleSeedSubmit} className="space-y-4">
               <div>
                 <label htmlFor="seedYear" className="mb-2 block text-sm font-medium text-ink-muted">
@@ -994,10 +1059,17 @@ export default function AdminDashboard() {
                 />
               </div>
 
+              {seedRecorded > 0 && (
+                <p className="text-sm text-ink-muted">
+                  {seedRecorded} pair(s) already recorded for {seedYear}. Editing and saving replaces them.
+                </p>
+              )}
+
               <div className="space-y-3">
                 {seedPairs.map((pair, index) => (
                   <div key={index} className="flex flex-col gap-2 sm:flex-row sm:items-center">
                     <select
+                      aria-label={`Giver for row ${index + 1}`}
                       value={pair.giverId}
                       onChange={(e) => handleSeedRowChange(index, "giverId", e.target.value)}
                       className="w-full rounded-sm border border-border bg-raised px-3 py-2 text-ink"
@@ -1011,6 +1083,7 @@ export default function AdminDashboard() {
                     </select>
                     <span className="hidden text-ink-muted sm:inline">&rarr;</span>
                     <select
+                      aria-label={`Receiver for row ${index + 1}`}
                       value={pair.receiverId}
                       onChange={(e) => handleSeedRowChange(index, "receiverId", e.target.value)}
                       className="w-full rounded-sm border border-border bg-raised px-3 py-2 text-ink"
@@ -1033,6 +1106,19 @@ export default function AdminDashboard() {
               >
                 + Add row
               </button>
+
+              {seedMessage && (
+                <div
+                  role="status"
+                  className={`rounded-md border px-4 py-3 text-sm ${
+                    seedMessage.kind === "success"
+                      ? "border-success/30 bg-success/10 text-success"
+                      : "border-danger/30 bg-danger/10 text-danger"
+                  }`}
+                >
+                  {seedMessage.text}
+                </div>
+              )}
 
               <button
                 type="submit"

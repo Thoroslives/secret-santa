@@ -81,3 +81,56 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }
+
+// GET /api/rounds/seed?groupId=X&year=Y
+// Read side of the seed feature, so the admin dashboard can show what has
+// already been recorded and pre-fill the editable table. Returns the recorded
+// giver->receiver pairs for `year` (defaults to last year), their count, and a
+// summary of every PAST year that already has recorded pairs. Admin-only.
+// Hand-seeded history and rolled-over real draws are the same "who gave to
+// whom" record the current draw excludes against, so both surface here.
+export async function GET(request: NextRequest) {
+  try {
+    const forbidden = await requireAdmin();
+    if (forbidden) return forbidden;
+
+    const { searchParams } = new URL(request.url);
+    const groupId = searchParams.get("groupId");
+    if (!groupId) {
+      return NextResponse.json({ error: "Group ID is required" }, { status: 400 });
+    }
+
+    const activeYear = await getActiveYear(groupId);
+
+    // Every past year that already has recorded pairs, newest first - drives
+    // the "recorded so far" summary so the admin can see history at a glance.
+    const pastRounds = await prisma.round.findMany({
+      where: { groupId, year: { lt: activeYear } },
+      select: { year: true, _count: { select: { assignments: true } } },
+      orderBy: { year: "desc" },
+    });
+    const seededYears = pastRounds
+      .filter((r) => r._count.assignments > 0)
+      .map((r) => ({ year: r.year, count: r._count.assignments }));
+
+    // Pairs for the requested year (defaults to last year). Only past years are
+    // read back - the seed table is about history, never the live current draw.
+    const yearParam = parseInt(searchParams.get("year") ?? "", 10);
+    const year = Number.isInteger(yearParam) ? yearParam : activeYear - 1;
+
+    const assignments =
+      year < activeYear
+        ? await prisma.assignment.findMany({
+            where: { groupId, year },
+            select: { giverId: true, receiverId: true },
+            orderBy: { giver: { name: "asc" } },
+          })
+        : [];
+    const pairs = assignments.map((a) => ({ giverId: a.giverId, receiverId: a.receiverId }));
+
+    return NextResponse.json({ year, activeYear, pairs, count: pairs.length, seededYears });
+  } catch (error) {
+    console.error("Seed history error:", error);
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+  }
+}

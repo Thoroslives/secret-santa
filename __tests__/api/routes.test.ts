@@ -43,6 +43,7 @@ const mockPrismaDb = {
   },
   round: {
     findUnique: jest.fn(),
+    findMany: jest.fn(),
     update: jest.fn(),
     updateMany: jest.fn(),
     upsert: jest.fn(),
@@ -188,7 +189,7 @@ import { POST as createPin, DELETE as deletePin } from '@/app/api/pins/route';
 import { POST as generateRound } from '@/app/api/rounds/generate/route';
 import { POST as sendRound } from '@/app/api/rounds/send/route';
 import { POST as rolloverRound } from '@/app/api/rounds/rollover/route';
-import { POST as seedRound } from '@/app/api/rounds/seed/route';
+import { POST as seedRound, GET as getSeed } from '@/app/api/rounds/seed/route';
 import { GET as getRoster } from '@/app/api/roster/route';
 import { POST as createSuggestion, GET as getSuggestions, DELETE as deleteSuggestion } from '@/app/api/suggestions/route';
 
@@ -2326,6 +2327,77 @@ describe('POST /api/rounds/seed', () => {
     expect(mockPrismaDb.assignment.create).toHaveBeenCalledWith({
       data: { groupId: 'group-1', roundId: 'round-seed', giverId: 'p-3', receiverId: 'p-1', year: 2025 },
     });
+  });
+});
+
+// ===========================================================================
+// GET /api/rounds/seed - read-back so the admin UI can show/edit what has
+// already been recorded (the write-only-feature fix).
+// ===========================================================================
+describe('GET /api/rounds/seed', () => {
+  const url = 'http://localhost:3000/api/rounds/seed';
+
+  beforeEach(() => {
+    mockSession.isAdmin = true;
+    (getActiveYear as jest.Mock).mockResolvedValue(2026);
+    mockPrismaDb.round.findMany.mockResolvedValue([]);
+    mockPrismaDb.assignment.findMany.mockResolvedValue([]);
+  });
+
+  it('returns 403 for an anonymous session', async () => {
+    delete mockSession.isAdmin;
+    const res = await getSeed(makeGetRequest(`${url}?groupId=group-1`));
+    expect(res.status).toBe(403);
+    expect(mockPrismaDb.assignment.findMany).not.toHaveBeenCalled();
+  });
+
+  it('returns 400 when groupId is missing', async () => {
+    const res = await getSeed(makeGetRequest(url));
+    expect(res.status).toBe(400);
+  });
+
+  it('defaults to last year and returns its pairs, count, and the recorded-years summary', async () => {
+    mockPrismaDb.round.findMany.mockResolvedValue([
+      { year: 2025, _count: { assignments: 2 } },
+      { year: 2024, _count: { assignments: 0 } }, // no pairs -> filtered out of the summary
+    ]);
+    mockPrismaDb.assignment.findMany.mockResolvedValue([
+      { giverId: 'p-1', receiverId: 'p-2' },
+      { giverId: 'p-2', receiverId: 'p-1' },
+    ]);
+
+    const res = await getSeed(makeGetRequest(`${url}?groupId=group-1`));
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({
+      year: 2025,
+      activeYear: 2026,
+      pairs: [
+        { giverId: 'p-1', receiverId: 'p-2' },
+        { giverId: 'p-2', receiverId: 'p-1' },
+      ],
+      count: 2,
+      seededYears: [{ year: 2025, count: 2 }],
+    });
+    // Defaulted year is last year (activeYear - 1).
+    expect(mockPrismaDb.assignment.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { groupId: 'group-1', year: 2025 } })
+    );
+  });
+
+  it('reads the requested past year when ?year= is given', async () => {
+    await getSeed(makeGetRequest(`${url}?groupId=group-1&year=2024`));
+    expect(mockPrismaDb.assignment.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { groupId: 'group-1', year: 2024 } })
+    );
+  });
+
+  it('never reads the live current draw: year >= activeYear returns no pairs', async () => {
+    const res = await getSeed(makeGetRequest(`${url}?groupId=group-1&year=2026`));
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.pairs).toEqual([]);
+    expect(json.count).toBe(0);
+    expect(mockPrismaDb.assignment.findMany).not.toHaveBeenCalled();
   });
 });
 
