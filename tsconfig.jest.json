@@ -1,0 +1,7 @@
+{
+  "//": "Test-only override. The app tsconfig uses jsx:\"preserve\" (Next compiles JSX in the app); ts-jest needs JSX lowered to the automatic runtime so component (.tsx) tests run under jest.",
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "jsx": "react-jsx"
+  }
+}

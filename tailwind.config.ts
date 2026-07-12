@@ -11,7 +11,11 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
-        base: "oklch(0.170 0.014 55 / <alpha-value>)",
+        // Named `canvas`, not `base`: a colour token called `base` collides
+        // with Tailwind's `text-base` font-size utility (both own `text-`),
+        // which silently injects this colour wherever `text-base` is used for
+        // sizing. See __tests__/theme/tailwind-tokens.test.ts.
+        canvas: "oklch(0.170 0.014 55 / <alpha-value>)",
         surface: "oklch(0.215 0.016 55 / <alpha-value>)",
         raised: "oklch(0.255 0.018 55 / <alpha-value>)",
         border: {

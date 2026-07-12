@@ -16,7 +16,7 @@ export default function LoginPage({
   const invalidLink = searchParams?.error === "invalid-link";
 
   return (
-    <main className="flex min-h-[100dvh] items-center justify-center bg-base p-4">
+    <main className="flex min-h-[100dvh] items-center justify-center bg-canvas p-4">
       <div className="w-full max-w-md rounded-md border border-border bg-surface p-8 shadow-elev-2">
         <div className="mb-6 text-center">
           <div className="mx-auto mb-4 h-px w-10 bg-accent-dim" />

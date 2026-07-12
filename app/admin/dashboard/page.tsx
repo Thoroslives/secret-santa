@@ -59,6 +59,7 @@ export default function AdminDashboard() {
   const [groups, setGroups] = useState<GroupSummary[]>([]);
   const [activeGroupId, setActiveGroupId] = useState("");
   const [newGroupName, setNewGroupName] = useState("");
+  const [showNewGroup, setShowNewGroup] = useState(false);
   const [activeYear, setActiveYear] = useState<number | null>(null);
   const [budget, setBudget] = useState<GroupBudget>({ budgetAmount: undefined, budgetCurrency: "USD" });
   const [budgetAmount, setBudgetAmount] = useState("");
@@ -168,6 +169,7 @@ export default function AdminDashboard() {
       }
 
       setNewGroupName("");
+      setShowNewGroup(false);
       setSuccessMessage(`Created ${data.group.name}`);
       await loadGroups();
     } catch (err) {
@@ -555,43 +557,83 @@ export default function AdminDashboard() {
 
   if (loading) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-base">
+      <div className="flex min-h-screen items-center justify-center bg-canvas">
         <div className="text-xl text-ink-muted">Loading...</div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-base p-4 md:p-8">
+    <div className="min-h-screen bg-canvas p-4 md:p-8">
       <div className="mx-auto max-w-7xl">
         <div className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div className="min-w-0">
             <h1 className="font-display text-2xl font-medium tracking-[-0.02em] text-ink-strong sm:text-4xl">Admin Dashboard</h1>
             {groups.length > 0 && (
-              <div className="mt-2 flex items-center gap-2">
-                <label htmlFor="groupPicker" className="text-sm text-ink-muted">
-                  Group
-                </label>
+              <div className="mt-2">
+                <div className="flex flex-wrap items-center gap-2">
+                  <label htmlFor="groupPicker" className="text-sm text-ink-muted">
+                    Group
+                  </label>
 
-                <select
-                  id="groupPicker"
-                  value={activeGroupId}
-                  onChange={(e) => handleSelectGroup(e.target.value)}
-                  className="max-w-full appearance-none rounded-sm border border-border-strong bg-raised py-2 pl-3 pr-8 text-sm text-ink sm:text-base"
-                  style={{
-                    backgroundImage:
-                      "url(\"data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIxNiIgaGVpZ2h0PSIxNiIgdmlld0JveD0iMCAwIDE2IDE2IiBmaWxsPSJub25lIiBzdHJva2U9IiNhMzlhOGYiIHN0cm9rZS13aWR0aD0iMS41IiBzdHJva2UtbGluZWNhcD0icm91bmQiIHN0cm9rZS1saW5lam9pbj0icm91bmQiPjxwYXRoIGQ9Ik00IDZsNCA0IDQtNCIvPjwvc3ZnPg==\")",
-                    backgroundRepeat: "no-repeat",
-                    backgroundPosition: "right 0.6rem center",
-                  }}
-                >
-                  {groups.map((g) => (
-                    <option key={g.id} value={g.id}>
-                      {g.name} ({g.year})
-                    </option>
-                  ))}
-                </select>
+                  <select
+                    id="groupPicker"
+                    value={activeGroupId}
+                    onChange={(e) => handleSelectGroup(e.target.value)}
+                    className="max-w-full appearance-none rounded-sm border border-border-strong bg-raised py-2 pl-3 pr-8 text-sm text-ink sm:text-base"
+                    style={{
+                      backgroundImage:
+                        "url(\"data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIxNiIgaGVpZ2h0PSIxNiIgdmlld0JveD0iMCAwIDE2IDE2IiBmaWxsPSJub25lIiBzdHJva2U9IiNhMzlhOGYiIHN0cm9rZS13aWR0aD0iMS41IiBzdHJva2UtbGluZWNhcD0icm91bmQiIHN0cm9rZS1saW5lam9pbj0icm91bmQiPjxwYXRoIGQ9Ik00IDZsNCA0IDQtNCIvPjwvc3ZnPg==\")",
+                      backgroundRepeat: "no-repeat",
+                      backgroundPosition: "right 0.6rem center",
+                    }}
+                  >
+                    {groups.map((g) => (
+                      <option key={g.id} value={g.id}>
+                        {g.name} ({g.year})
+                      </option>
+                    ))}
+                  </select>
 
+                  <button
+                    type="button"
+                    onClick={() => setShowNewGroup((v) => !v)}
+                    aria-expanded={showNewGroup}
+                    className="min-h-[44px] rounded-sm border border-border px-3 py-2 text-sm text-ink-muted transition-colors hover:bg-raised hover:text-ink"
+                  >
+                    + New group
+                  </button>
+                </div>
+
+                {showNewGroup && (
+                  <form onSubmit={handleCreateGroup} className="mt-2 flex flex-wrap items-center gap-2">
+                    <input
+                      type="text"
+                      aria-label="New group name"
+                      value={newGroupName}
+                      onChange={(e) => setNewGroupName(e.target.value)}
+                      className="rounded-sm border border-border bg-raised px-3 py-2 text-sm text-ink placeholder-ink-muted focus:border-transparent focus:ring-2 focus:ring-accent"
+                      placeholder="New group name"
+                      required
+                    />
+                    <button
+                      type="submit"
+                      className="min-h-[44px] rounded-sm bg-primary px-4 py-2 text-sm font-semibold text-primary-on transition-colors hover:bg-primary-hover"
+                    >
+                      Create
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowNewGroup(false);
+                        setNewGroupName("");
+                      }}
+                      className="min-h-[44px] rounded-sm border border-border px-3 py-2 text-sm text-ink-muted transition-colors hover:bg-raised hover:text-ink"
+                    >
+                      Cancel
+                    </button>
+                  </form>
+                )}
               </div>
             )}
           </div>

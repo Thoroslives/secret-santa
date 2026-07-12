@@ -10,7 +10,10 @@ const config: Config = {
   },
   transform: {
     '^.+\\.tsx?$': ['ts-jest', {
-      tsconfig: 'tsconfig.json',
+      // tsconfig.jest.json extends tsconfig.json but lowers JSX to the
+      // automatic runtime so .tsx component tests run (the app config uses
+      // jsx:"preserve", which jest cannot execute directly).
+      tsconfig: 'tsconfig.jest.json',
     }],
   },
   testPathIgnorePatterns: ['/node_modules/', '/e2e/'],
