@@ -2,6 +2,7 @@ import {
   generatePersonalLinkToken,
   generateGroupInviteCode,
   validateWishlistItems,
+  isValidEmail,
 } from '@/lib/utils';
 
 const ALLOWED_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
@@ -168,5 +169,30 @@ describe('validateWishlistItems', () => {
       expect(result.valid).toBe(false);
       expect(result.error).toMatch(/title/i);
     });
+  });
+});
+
+describe('isValidEmail', () => {
+  it.each([
+    'a@b.co',
+    'alice@example.com',
+    'first.last+tag@sub.domain.com',
+    "o'brien@example.co.uk",
+  ])('accepts %s', (email) => {
+    expect(isValidEmail(email)).toBe(true);
+  });
+
+  it.each([
+    ['', 'empty'],
+    ['a', 'no @ and no domain'],
+    ['a@', 'no domain'],
+    ['@b.com', 'no local part'],
+    ['a@b', 'no dot in the domain'],
+    ['a b@c.com', 'whitespace in the local part'],
+    ['a@b .com', 'whitespace in the domain'],
+    ['a@@b.com', 'two @ signs'],
+    ['a@b.', 'trailing dot, no TLD'],
+  ])('rejects %s (%s)', (email) => {
+    expect(isValidEmail(email)).toBe(false);
   });
 });

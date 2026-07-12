@@ -19,6 +19,27 @@ export function generateGroupInviteCode(): string {
   return code;
 }
 
+// The canonical form of an address. This is not cosmetic: email IS the cross-group
+// identity key (lib/draws.ts), the column is plain TEXT with no COLLATE NOCASE, and
+// SQLite therefore compares it case-sensitively. So "Nan@x.com" and "nan@x.com" would
+// be two different people - the merge guard would not fire, @@unique([groupId, email])
+// would not fire, and the draw switcher would quietly stop linking their draws. Every
+// reader and writer of Person.email goes through here.
+// Returns null for anything blank: an absent address, not an empty string.
+export function normalizeEmail(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim().toLowerCase();
+  return trimmed || null;
+}
+
+// Pragmatic format check: something@something.tld, no whitespace. Deliberately not
+// RFC-perfect - it matches the intent of <input type="email">, and exists so an address
+// cannot be stored in a shape that could never receive a sign-in or match-ready email.
+// Call it on an already-normalised value.
+export function isValidEmail(email: string): boolean {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+}
+
 // Validate wishlist items (0-5 items; each needs a title, note is optional free text or a URL).
 // An empty list is valid - it clears the person's wishlist.
 export function validateWishlistItems(items: Array<{ title: string; note?: string }>): { valid: boolean; error?: string } {

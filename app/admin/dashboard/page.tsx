@@ -3,6 +3,10 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 
+// Type-only: erased at build time, so lib/people's prisma import never reaches the
+// browser bundle. One declaration of the 409 wire contract, not two that can drift.
+import type { EmailHolder } from "@/lib/people";
+
 interface Person {
   id: string;
   name: string;
@@ -11,10 +15,27 @@ interface Person {
   _count: { wishlistItems: number; suggestionsBy: number };
 }
 
+// A 409 from the people API: the write is legal but needs the admin to look at it
+// first. `siblings` = this person's other draws, which the change can follow.
+// `linksTo` = people who ALREADY hold the new address, who would become able to
+// open this person's draw. `email` is the SERVER's canonical form of the address -
+// the dialog exists to show exactly what is about to be written, so it must never
+// render the client's own guess at it.
+interface PendingConfirm {
+  kind: "edit" | "add";
+  personId?: string;
+  personName: string;
+  email: string;
+  siblings: EmailHolder[];
+  linksTo: EmailHolder[];
+  applyToAll: boolean;
+}
+
 interface Assignment {
   id: string;
   giver: { name: string };
   receiver: { name: string; wishlistItems: Array<{ title: string; note?: string | null }> };
+  round?: { status: string };
 }
 
 interface GroupBudget {
@@ -40,6 +61,25 @@ export default function AdminDashboard() {
   const [successMessage, setSuccessMessage] = useState("");
   const [shareLinks, setShareLinks] = useState<{ name: string; link: string }[]>([]);
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
+  const [editingPersonId, setEditingPersonId] = useState<string | null>(null);
+  const [editEmailDraft, setEditEmailDraft] = useState("");
+  // One slot, not two. A row shows at most one message at a time, and two states
+  // would have to be cleared in lockstep by every handler - miss one and a stale
+  // "Sent to ..." survives the next action.
+  const [rowFeedback, setRowFeedback] = useState<
+    { id: string; kind: "error" | "success"; text: string } | null
+  >(null);
+  const [pendingConfirm, setPendingConfirm] = useState<PendingConfirm | null>(null);
+  // Errors raised on the CONFIRM path must land inside the dialog. It is a
+  // full-screen overlay, so a message painted into the row behind it is invisible -
+  // and the error it would hide ("already used in <other draw>") is the last thing
+  // between "same human" and "two different humans".
+  const [confirmError, setConfirmError] = useState("");
+  const [resendingId, setResendingId] = useState<string | null>(null);
+
+  // Matches are only resendable once the draw has actually been sent. The status
+  // rides along on the assignments payload (the API already includes `round`).
+  const roundSent = assignments.some((a) => a.round?.status === "sent");
 
   // Full shareable participant link. Uses NEXT_PUBLIC_APP_URL when set (e.g.
   // https://santa.north.cx), otherwise auto-detects the current site origin in
@@ -228,8 +268,10 @@ export default function AdminDashboard() {
     }
   };
 
-  const handleAddPerson = async (e: React.FormEvent) => {
-    e.preventDefault();
+  // Add a person. A 409 means the address already belongs to someone in another
+  // draw, so creating this row would let the two open each other's draw - the
+  // admin has to look at who first.
+  const addPerson = async (acknowledgedLinkIds?: string[]) => {
     setError("");
     setSuccessMessage("");
 
@@ -245,14 +287,30 @@ export default function AdminDashboard() {
         body: JSON.stringify({
           name: newPersonName,
           email: newPersonEmail.trim() || undefined,
-          groupId: activeGroupId
+          groupId: activeGroupId,
+          ...(acknowledgedLinkIds ? { acknowledgedLinkIds } : {}),
         }),
       });
 
       const data = await res.json();
 
+      if (res.status === 409) {
+        setPendingConfirm({
+          kind: "add",
+          personName: newPersonName.trim(),
+          // The server's canonical address, not our guess at it.
+          email: data.email,
+          siblings: [],
+          linksTo: data.linksTo || [],
+          applyToAll: false,
+        });
+        return;
+      }
+
       if (!res.ok) {
-        setError(data.error || "Failed to add person");
+        const message = data.error || "Failed to add person";
+        if (acknowledgedLinkIds) setConfirmError(message);
+        else setError(message);
         return;
       }
 
@@ -260,10 +318,344 @@ export default function AdminDashboard() {
       setSuccessMessage(`Added ${data.person.name}${emailMsg}`);
       setNewPersonName("");
       setNewPersonEmail("");
+      setPendingConfirm(null);
+      setConfirmError("");
       loadData(activeGroupId);
     } catch (err) {
       setError("An error occurred");
     }
+  };
+
+  const handleAddPerson = async (e: React.FormEvent) => {
+    e.preventDefault();
+    await addPerson();
+  };
+
+  const startEditEmail = (person: Person) => {
+    setEditingPersonId(person.id);
+    setEditEmailDraft(person.email || "");
+    setRowFeedback(null);
+    setConfirmError("");
+  };
+
+  const cancelEditEmail = () => {
+    setEditingPersonId(null);
+    setEditEmailDraft("");
+    setRowFeedback(null);
+  };
+
+  // Save a person's email. Sent WITHOUT applyToAll the first time on purpose: the
+  // absence of that key is what tells the server the admin has not yet been asked
+  // which of their draws the change applies to.
+  const submitEmail = async (
+    person: Person,
+    opts: { applyToAll?: boolean; acknowledgedLinkIds?: string[]; fromDialog?: boolean } = {}
+  ) => {
+    setRowFeedback(null);
+    setConfirmError("");
+
+    try {
+      const res = await fetch(`/api/people/${person.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          email: editEmailDraft.trim() || null,
+          ...(opts.applyToAll === undefined ? {} : { applyToAll: opts.applyToAll }),
+          ...(opts.acknowledgedLinkIds ? { acknowledgedLinkIds: opts.acknowledgedLinkIds } : {}),
+        }),
+      });
+
+      const data = await res.json();
+
+      if (res.status === 409) {
+        setPendingConfirm({
+          kind: "edit",
+          personId: person.id,
+          personName: person.name,
+          // The server's canonical address, not our guess at it.
+          email: data.email,
+          siblings: data.siblings || [],
+          linksTo: data.linksTo || [],
+          // The dialog only appears for a genuinely multi-draw person, and the
+          // usual reason to change an address is that the human changed theirs.
+          applyToAll: (data.siblings || []).length > 0,
+        });
+        return;
+      }
+
+      if (!res.ok) {
+        const message = data.error || "Could not save that email";
+        // Inside the dialog the row behind it is covered, so the message has to go
+        // where the admin is actually looking.
+        if (opts.fromDialog) setConfirmError(message);
+        else setRowFeedback({ id: person.id, kind: "error", text: message });
+        return;
+      }
+
+      setPendingConfirm(null);
+      setConfirmError("");
+      setEditingPersonId(null);
+      setEditEmailDraft("");
+      // Say how many draws it landed in: the people list only ever shows ONE group,
+      // so a change that followed them into another draw is otherwise invisible.
+      setRowFeedback({
+        id: person.id,
+        kind: "success",
+        text:
+          data.drawsUpdated > 1
+            ? `Email updated in ${data.drawsUpdated} draws`
+            : "Email updated",
+      });
+      loadData(activeGroupId);
+    } catch (err) {
+      setRowFeedback({ id: person.id, kind: "error", text: "An error occurred" });
+    }
+  };
+
+  const confirmPending = async () => {
+    if (!pendingConfirm) return;
+    const ack = pendingConfirm.linksTo.map((l) => l.id);
+
+    if (pendingConfirm.kind === "add") {
+      await addPerson(ack);
+      return;
+    }
+
+    const person = people.find((p) => p.id === pendingConfirm.personId);
+    if (!person) return;
+    await submitEmail(person, {
+      applyToAll: pendingConfirm.applyToAll,
+      acknowledgedLinkIds: ack,
+      fromDialog: true,
+    });
+  };
+
+  // Re-send ONE person their match email. This mails a permanent sign-in link, so
+  // the address is stated in the confirm and echoed back on success - a typo'd
+  // address would otherwise hand a stranger a forever-login to someone's draw.
+  const handleResend = async (person: Person) => {
+    if (!person.email) return;
+    if (!confirm(`Email ${person.name}'s sign-in link to ${person.email}?`)) return;
+
+    setRowFeedback(null);
+    setResendingId(person.id);
+
+    try {
+      const res = await fetch(`/api/people/${person.id}/resend`, { method: "POST" });
+      const data = await res.json();
+
+      if (!res.ok) {
+        setRowFeedback({ id: person.id, kind: "error", text: data.error || "Could not resend" });
+        return;
+      }
+
+      setRowFeedback({ id: person.id, kind: "success", text: `Sent to ${data.email}` });
+    } catch (err) {
+      setRowFeedback({ id: person.id, kind: "error", text: "An error occurred" });
+    } finally {
+      setResendingId(null);
+    }
+  };
+
+  // ONE email cell, ONE action set, ONE dialog - all shared by the mobile card
+  // layout AND the desktop table below. The same person is rendered twice, so
+  // keeping these in one place is what stops the edit state being duplicated.
+  const renderEmailCell = (person: Person) => {
+    if (editingPersonId === person.id) {
+      return (
+        <div className="flex flex-wrap items-center gap-2">
+          <input
+            type="email"
+            value={editEmailDraft}
+            onChange={(e) => setEditEmailDraft(e.target.value)}
+            placeholder="Leave blank to clear"
+            aria-label={`Email for ${person.name}`}
+            className="min-w-0 flex-1 rounded-sm border border-border bg-canvas px-2 py-1 text-sm text-ink"
+          />
+          <button
+            type="button"
+            onClick={() => submitEmail(person)}
+            aria-label={`Save email for ${person.name}`}
+            className="shrink-0 rounded-sm border border-border px-3 py-1 text-xs font-semibold text-ink transition-colors hover:bg-raised"
+          >
+            Save
+          </button>
+          <button
+            type="button"
+            onClick={cancelEditEmail}
+            aria-label={`Cancel editing email for ${person.name}`}
+            className="shrink-0 rounded-sm border border-border px-3 py-1 text-xs font-medium text-ink-muted transition-colors hover:bg-raised"
+          >
+            Cancel
+          </button>
+        </div>
+      );
+    }
+
+    return person.email ? (
+      <div className="flex min-w-0 items-center gap-2">
+        <span className="truncate text-sm text-ink-muted">{person.email}</span>
+        <span className="shrink-0 rounded-full border border-accent/20 bg-accent/10 px-2 py-1 text-xs font-semibold text-accent-text">
+          Email link
+        </span>
+      </div>
+    ) : (
+      <span className="text-sm italic text-ink-muted">No email</span>
+    );
+  };
+
+  const renderRowFeedback = (person: Person) => {
+    if (rowFeedback?.id !== person.id) return null;
+    const isError = rowFeedback.kind === "error";
+    return (
+      <p
+        role={isError ? "alert" : undefined}
+        className={`mt-1 text-xs ${isError ? "text-danger" : "text-success"}`}
+      >
+        {rowFeedback.text}
+      </p>
+    );
+  };
+
+  const renderPersonActions = (person: Person) => (
+    <div className="flex flex-wrap items-center gap-2">
+      <button
+        type="button"
+        onClick={() => startEditEmail(person)}
+        aria-label={`Edit email for ${person.name}`}
+        className="flex min-h-[44px] items-center rounded-sm border border-border px-2 text-xs font-medium text-ink-muted transition-colors hover:bg-raised hover:text-ink md:min-h-0 md:py-1"
+      >
+        Edit email
+      </button>
+      {person.email && roundSent && (
+        <button
+          type="button"
+          onClick={() => handleResend(person)}
+          disabled={resendingId === person.id}
+          aria-label={`Resend match email to ${person.name}`}
+          className="flex min-h-[44px] items-center rounded-sm border border-border px-2 text-xs font-medium text-ink-muted transition-colors hover:bg-raised hover:text-ink disabled:opacity-50 md:min-h-0 md:py-1"
+        >
+          {resendingId === person.id ? "Sending" : "Resend"}
+        </button>
+      )}
+      <button
+        type="button"
+        onClick={() => handleDeletePerson(person.id, person.name)}
+        aria-label={`Delete ${person.name}`}
+        className="flex min-h-[44px] items-center px-2 text-sm font-semibold text-danger hover:text-danger/80 md:min-h-0"
+      >
+        Delete
+      </button>
+    </div>
+  );
+
+  const holderLine = (h: EmailHolder) => `${h.name} - ${h.groupName}${h.active ? "" : " (deactivated)"}`;
+
+  const renderConfirmDialog = () => {
+    if (!pendingConfirm) return null;
+    const { kind, personName, email, siblings, linksTo, applyToAll } = pendingConfirm;
+    const thisDraw = groups.find((g) => g.id === activeGroupId)?.name || "this draw";
+
+    return (
+      <div
+        className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
+        role="dialog"
+        aria-modal="true"
+        aria-label={kind === "add" ? "Confirm new person" : "Confirm email change"}
+      >
+        <div className="max-h-full w-full max-w-md overflow-y-auto rounded-md border border-border bg-surface p-6 shadow-elev-1">
+          <h3 className="mb-4 text-lg font-semibold text-ink-strong">
+            {kind === "add" ? `Add ${personName}?` : `Change ${personName}'s email?`}
+          </h3>
+
+          {/* Their other draws. Changing the address here can follow them or not. */}
+          {siblings.length > 0 && (
+            <div className="mb-5">
+              <p className="mb-2 text-sm text-ink">
+                Their current address is also used in another draw:
+              </p>
+              <ul className="mb-3 space-y-1">
+                {siblings.map((s) => (
+                  <li key={s.id} className="text-sm text-ink-muted">
+                    {holderLine(s)}
+                  </li>
+                ))}
+              </ul>
+              <fieldset>
+                <legend className="mb-2 text-sm text-ink">Change the email in:</legend>
+                <label className="mb-1 flex items-center gap-2 text-sm text-ink-muted">
+                  <input
+                    type="radio"
+                    name="applyToAll"
+                    checked={!applyToAll}
+                    onChange={() => setPendingConfirm({ ...pendingConfirm, applyToAll: false })}
+                  />
+                  {thisDraw} only
+                </label>
+                <label className="flex items-center gap-2 text-sm text-ink-muted">
+                  <input
+                    type="radio"
+                    name="applyToAll"
+                    checked={applyToAll}
+                    onChange={() => setPendingConfirm({ ...pendingConfirm, applyToAll: true })}
+                  />
+                  All {siblings.length + 1} of their draws
+                </label>
+              </fieldset>
+            </div>
+          )}
+
+          {/* The one that protects the draw. The app cannot tell "same human in two
+              draws" from "typo'd someone else's address" - only the admin can, by
+              reading the names. So state the consequence plainly and name them. */}
+          {linksTo.length > 0 && (
+            <div className="mb-5 rounded-sm border border-danger/30 bg-danger/5 p-3">
+              <p className="mb-2 text-sm text-ink">
+                <span className="font-semibold">{email}</span> already belongs to:
+              </p>
+              <ul className="mb-2 space-y-1">
+                {linksTo.map((l) => (
+                  <li key={l.id} className="text-sm font-semibold text-ink-strong">
+                    {holderLine(l)}
+                  </li>
+                ))}
+              </ul>
+              <p className="text-sm text-ink-muted">
+                Saving links these draws. Whoever signs in with this address can switch between
+                them and see both matches. That is what you want if it is the same person. If it
+                is not, go back and check the address.
+              </p>
+            </div>
+          )}
+
+          {confirmError && (
+            <p role="alert" className="mb-4 text-sm font-semibold text-danger">
+              {confirmError}
+            </p>
+          )}
+
+          <div className="flex justify-end gap-2">
+            <button
+              type="button"
+              onClick={() => {
+                setPendingConfirm(null);
+                setConfirmError("");
+              }}
+              className="rounded-sm border border-border px-4 py-2 text-sm font-medium text-ink-muted transition-colors hover:bg-raised"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={confirmPending}
+              className="rounded-sm border border-border bg-raised px-4 py-2 text-sm font-semibold text-ink transition-colors hover:bg-canvas"
+            >
+              {kind === "add" ? "Add them" : "Save email"}
+            </button>
+          </div>
+        </div>
+      </div>
+    );
   };
 
   const handleDeletePerson = async (id: string, name: string) => {
@@ -614,6 +1006,7 @@ export default function AdminDashboard() {
 
   return (
     <div className="min-h-[100svh] bg-canvas p-4 md:p-8">
+      {renderConfirmDialog()}
       <div className="mx-auto max-w-7xl">
         <div className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div className="min-w-0">
@@ -1140,18 +1533,13 @@ export default function AdminDashboard() {
               <div className="space-y-3 md:hidden">
                 {people.map((person) => (
                   <div key={person.id} className="rounded-md border border-border/60 bg-raised p-4">
-                    <div className="mb-2 flex items-start justify-between">
+                    <div className="mb-2">
                       <span className="font-semibold text-ink-strong">{person.name}</span>
-                      <button
-                        onClick={() => handleDeletePerson(person.id, person.name)}
-                        className="flex min-h-[44px] min-w-[44px] items-center justify-center text-sm font-semibold text-danger hover:text-danger/80"
-                      >
-                        Delete
-                      </button>
                     </div>
-                    {person.email && (
-                      <p className="mb-1 truncate text-sm text-ink-muted">{person.email}</p>
-                    )}
+                    <div className="mb-2">
+                      {renderEmailCell(person)}
+                      {renderRowFeedback(person)}
+                    </div>
                     <div className="mb-2 flex items-center gap-2">
                       <code className="min-w-0 flex-1 truncate rounded-sm border border-border bg-surface px-2 py-1 font-mono text-xs text-ink-muted">
                         {personalLink(person.personalLinkToken)}
@@ -1186,6 +1574,9 @@ export default function AdminDashboard() {
                         </span>
                       )}
                     </div>
+                    <div className="mt-3 border-t border-border/60 pt-3">
+                      {renderPersonActions(person)}
+                    </div>
                   </div>
                 ))}
               </div>
@@ -1208,16 +1599,8 @@ export default function AdminDashboard() {
                       <tr key={person.id} className="border-b border-border/60 hover:bg-raised">
                         <td className="px-4 py-3 text-ink-strong">{person.name}</td>
                         <td className="px-4 py-3">
-                          {person.email ? (
-                            <div className="flex items-center gap-2">
-                              <span className="text-sm text-ink-muted">{person.email}</span>
-                              <span className="rounded-full border border-accent/20 bg-accent/10 px-2 py-1 text-xs font-semibold text-accent-text">
-                                Email link
-                              </span>
-                            </div>
-                          ) : (
-                            <span className="text-sm italic text-ink-muted">No email</span>
-                          )}
+                          {renderEmailCell(person)}
+                          {renderRowFeedback(person)}
                         </td>
                         <td className="px-4 py-3">
                           <div className="flex items-center gap-2">
@@ -1261,14 +1644,7 @@ export default function AdminDashboard() {
                             )}
                           </div>
                         </td>
-                        <td className="px-4 py-3">
-                          <button
-                            onClick={() => handleDeletePerson(person.id, person.name)}
-                            className="text-sm font-semibold text-danger hover:text-danger/80"
-                          >
-                            Delete
-                          </button>
-                        </td>
+                        <td className="px-4 py-3">{renderPersonActions(person)}</td>
                       </tr>
                     ))}
                   </tbody>

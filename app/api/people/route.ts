@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
-import { generatePersonalLinkToken } from "@/lib/utils";
+import { generatePersonalLinkToken, isValidEmail, normalizeEmail } from "@/lib/utils";
 import { getSession } from "@/lib/session";
+import { findEmailHolders, linkAcknowledged } from "@/lib/people";
 
 // GET all people for a group
 export async function GET(request: NextRequest) {
@@ -51,7 +52,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Admin authentication required" }, { status: 403 });
     }
 
-    const { name, email, groupId } = await request.json();
+    const { name, email, groupId, acknowledgedLinkIds } = await request.json();
 
     if (!name || name.trim().length === 0) {
       return NextResponse.json({ error: "Name is required" }, { status: 400 });
@@ -61,27 +62,47 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Group ID is required" }, { status: 400 });
     }
 
-    // Validate email if provided
-    if (email && email.trim()) {
-      const emailTrimmed = email.trim().toLowerCase();
+    const normalized = normalizeEmail(email);
 
-      // Check if email is already used in this group
-      const existingEmail = await prisma.person.findFirst({
-        where: {
-          groupId,
-          email: emailTrimmed
-        },
-      });
+    if (normalized) {
+      if (!isValidEmail(normalized)) {
+        return NextResponse.json(
+          { error: "Please enter a valid email address" },
+          { status: 400 }
+        );
+      }
 
-      if (existingEmail) {
+      // One query answers both questions below.
+      const holders = await findEmailHolders(normalized, []);
+
+      // Already taken inside this group: @@unique([groupId, email]) would refuse the
+      // write anyway. Answered first, so the confirmation below never offers to "link"
+      // something that cannot be written.
+      if (holders.some((h) => h.groupId === groupId)) {
         return NextResponse.json({ error: "Email is already used in this group" }, { status: 400 });
+      }
+
+      // Everyone left holds the address in ANOTHER group, so creating this person
+      // MERGES the two: sharing an address makes them switchable siblings
+      // (lib/draws.ts), and each can then open the other's draw and see their match.
+      // That is exactly how one human gets their several draws under a single login,
+      // and it is the worst bug in the app when they are different humans. So it is
+      // confirmed, never silent, and the admin is shown WHO by name: in the genuine
+      // case the names match, in the typo case they plainly do not.
+      if (!linkAcknowledged(holders, acknowledgedLinkIds)) {
+        return NextResponse.json(
+          // The SERVER's canonical form of the address, so the dialog shows exactly
+          // what is about to be written rather than the client's guess at it.
+          { needsConfirmation: true, email: normalized, linksTo: holders },
+          { status: 409 }
+        );
       }
     }
 
     const person = await prisma.person.create({
       data: {
         name: name.trim(),
-        email: email && email.trim() ? email.trim().toLowerCase() : null,
+        email: normalized,
         personalLinkToken: generatePersonalLinkToken(),
         groupId,
       },

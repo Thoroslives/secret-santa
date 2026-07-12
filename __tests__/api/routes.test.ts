@@ -16,6 +16,7 @@ const mockPrismaDb = {
     findMany: jest.fn(),
     create: jest.fn(),
     update: jest.fn(),
+    updateMany: jest.fn(),
     delete: jest.fn(),
   },
   wishlistItem: {
@@ -107,6 +108,10 @@ jest.mock('@/lib/session', () => ({
 // Mock @/lib/utils
 // ---------------------------------------------------------------------------
 jest.mock('@/lib/utils', () => ({
+  // isValidEmail is a pure function with its own units, and the routes' validation
+  // behaviour is precisely what these tests assert - so use the real one. A stub
+  // returning true would rubber-stamp a malformed address.
+  ...jest.requireActual('@/lib/utils'),
   generateGroupInviteCode: jest.fn().mockReturnValue('ABC123'),
   generatePersonalLinkToken: jest.fn().mockReturnValue('tok_test'),
   validateWishlistItems: jest.fn(),
@@ -186,6 +191,7 @@ import { GET as personalLinkLogin } from '@/app/p/[token]/route';
 import { POST as emailLink } from '@/app/api/auth/email-link/route';
 import { GET as getPeople, POST as createPerson } from '@/app/api/people/route';
 import { DELETE as deletePerson, PATCH as patchPerson } from '@/app/api/people/[id]/route';
+import { POST as resendMatch } from '@/app/api/people/[id]/resend/route';
 import { GET as personData } from '@/app/api/auth/person-data/route';
 import { POST as updateWishlist } from '@/app/api/wishlist/route';
 import { GET as getAssignments, DELETE as deleteAssignments } from '@/app/api/assignments/route';
@@ -888,7 +894,11 @@ describe('POST /api/people', () => {
   });
 
   it('returns 400 when email is already used in the group', async () => {
-    mockPrismaDb.person.findFirst.mockResolvedValue({ id: 'existing-person' });
+    // The in-group duplicate check is now derived from the single findEmailHolders
+    // lookup rather than its own findFirst query.
+    mockPrismaDb.person.findMany.mockResolvedValue([
+      { id: 'existing-person', name: 'Alice', groupId: 'group-1', active: true, group: { name: 'The Family Draw' } },
+    ]);
 
     const req = makePostRequest(url, {
       name: 'Alice',
@@ -902,8 +912,9 @@ describe('POST /api/people', () => {
   });
 
   it('returns 201 on successful creation', async () => {
-    // No duplicate email
-    mockPrismaDb.person.findFirst.mockResolvedValue(null);
+    // Nobody else holds the address: not in this group (no duplicate), not in any
+    // other group (nothing to link, so no confirmation).
+    mockPrismaDb.person.findMany.mockResolvedValue([]);
     const personData = {
       id: 'person-1',
       name: 'Alice',
@@ -942,6 +953,108 @@ describe('POST /api/people', () => {
     expect(mockPrismaDb.person.create).toHaveBeenCalledWith(
       expect.objectContaining({ data: expect.objectContaining({ groupId: 'some-other-group' }) }),
     );
+  });
+
+  // -------------------------------------------------------------------------
+  // Adding a person can MERGE them with someone in another draw, because sharing
+  // an address is what makes two rows switchable siblings (lib/draws.ts). This
+  // path has never had a cross-group check, so without it the edit-side guard
+  // would be theatre: you could still reach the bad state through Add.
+  // -------------------------------------------------------------------------
+  describe('cross-draw link confirmation', () => {
+    beforeEach(() => {
+      mockPrismaDb.person.findFirst.mockResolvedValue(null); // free inside this group
+      mockPrismaDb.person.findMany.mockResolvedValue([]); // nobody else holds it
+      mockPrismaDb.person.create.mockResolvedValue({ id: 'person-2', name: 'Alice' });
+    });
+
+    it('rejects a malformed address', async () => {
+      const req = makePostRequest(url, { name: 'Alice', email: 'not-an-email', groupId: 'group-1' });
+      const res = await createPerson(req);
+
+      expect(res.status).toBe(400);
+      expect((await res.json()).error).toMatch(/valid email/i);
+      expect(mockPrismaDb.person.create).not.toHaveBeenCalled();
+    });
+
+    it('creates with no lookups at all when no email is given', async () => {
+      const req = makePostRequest(url, { name: 'Alice', groupId: 'group-1' });
+      const res = await createPerson(req);
+
+      expect(res.status).toBe(201);
+      // where: { email: null } compiles to IS NULL and would match every
+      // email-less person in the DB. Never query for a blank address.
+      expect(mockPrismaDb.person.findMany).not.toHaveBeenCalled();
+    });
+
+    it('409s when the address already belongs to someone in another draw', async () => {
+      mockPrismaDb.person.findMany.mockResolvedValue([
+        { id: 'person-9', name: 'Alice', groupId: 'group-2', active: true, group: { name: 'Christmas 2027' } },
+      ]);
+
+      const req = makePostRequest(url, { name: 'Alice', email: 'alice@example.com', groupId: 'group-1' });
+      const res = await createPerson(req);
+
+      expect(res.status).toBe(409);
+      const json = await res.json();
+      expect(json.needsConfirmation).toBe(true);
+      expect(json.linksTo).toEqual([
+        { id: 'person-9', name: 'Alice', groupId: 'group-2', groupName: 'Christmas 2027', active: true },
+      ]);
+      expect(mockPrismaDb.person.create).not.toHaveBeenCalled();
+    });
+
+    // lib/draws.ts counts only ACTIVE people, so an inactive holder skipped here
+    // would let the create through silently, and the ordinary reactivate button
+    // (which has no email check) would complete the merge afterwards for free.
+    it('409s even when the holder is INACTIVE', async () => {
+      mockPrismaDb.person.findMany.mockResolvedValue([
+        { id: 'person-9', name: 'Yuki', groupId: 'group-2', active: false, group: { name: 'Christmas 2026' } },
+      ]);
+
+      const req = makePostRequest(url, { name: 'Bob', email: 'yuki@example.com', groupId: 'group-1' });
+      const res = await createPerson(req);
+
+      expect(res.status).toBe(409);
+      expect(mockPrismaDb.person.create).not.toHaveBeenCalled();
+    });
+
+    it('creates once the admin acknowledges the exact people they were shown', async () => {
+      mockPrismaDb.person.findMany.mockResolvedValue([
+        { id: 'person-9', name: 'Alice', groupId: 'group-2', active: true, group: { name: 'Christmas 2027' } },
+      ]);
+
+      const req = makePostRequest(url, {
+        name: 'Alice',
+        email: 'alice@example.com',
+        groupId: 'group-1',
+        acknowledgedLinkIds: ['person-9'],
+      });
+      const res = await createPerson(req);
+
+      expect(res.status).toBe(201);
+      expect(mockPrismaDb.person.create).toHaveBeenCalledWith(
+        expect.objectContaining({ data: expect.objectContaining({ email: 'alice@example.com' }) }),
+      );
+    });
+
+    it('re-409s when the acknowledgement does not match the current holders', async () => {
+      mockPrismaDb.person.findMany.mockResolvedValue([
+        { id: 'person-9', name: 'Alice', active: true, group: { name: 'Christmas 2027' } },
+        { id: 'person-10', name: 'Bob', groupId: 'group-3', active: true, group: { name: 'Christmas 2025' } },
+      ]);
+
+      const req = makePostRequest(url, {
+        name: 'Alice',
+        email: 'alice@example.com',
+        groupId: 'group-1',
+        acknowledgedLinkIds: ['person-9'], // stale: only ever saw person-9
+      });
+      const res = await createPerson(req);
+
+      expect(res.status).toBe(409);
+      expect(mockPrismaDb.person.create).not.toHaveBeenCalled();
+    });
   });
 });
 
@@ -1084,6 +1197,516 @@ describe('PATCH /api/people/[id]', () => {
         data: { active: false },
       });
     });
+  });
+});
+
+// ===========================================================================
+// 10c. PATCH /api/people/[id] - email editing
+//
+// Email is the cross-group identity key: everyone sharing an address is a
+// switchable draw of the same person (lib/draws.ts), so an edit re-shapes who can
+// open which draw and see whose match. These tests exist to keep that honest.
+//
+// Write shape: the edited person is ALWAYS written with person.update (which hands
+// the fresh row back). person.updateMany is used ONLY to fan the address out to
+// siblings, inside a transaction. So "updateMany was not called" means "no other
+// draw was touched".
+// ===========================================================================
+describe('PATCH /api/people/[id] email', () => {
+  const url = 'http://localhost:3000/api/people/person-1';
+  const patch = (body: unknown) =>
+    patchPerson(makePatchRequest(url, body as any), { params: { id: 'person-1' } } as any);
+
+  // A person in ONE draw, with an address.
+  const solo = { id: 'person-1', groupId: 'group-1', name: 'Nan', email: 'nan@example.com', active: true };
+
+  // The same human in a SECOND draw, sharing the address. This is the fixture the
+  // suite never had: every pre-existing PATCH fixture is { id, groupId, active } with
+  // no `email` field at all, which is exactly why a regression on the email path
+  // would have been invisible. Raw Prisma row shape (findEmailHolders maps it down).
+  const siblingRow = { id: 'person-2', groupId: 'group-2', name: 'Nan', active: true, group: { name: 'Christmas 2027' } };
+  const sibling = { id: 'person-2', name: 'Nan', groupId: 'group-2', groupName: 'Christmas 2027', active: true };
+
+  beforeEach(() => {
+    mockSession.isAdmin = true;
+    mockPrismaDb.person.findUnique.mockResolvedValue(solo);
+    mockPrismaDb.person.findMany.mockResolvedValue([]);
+    mockPrismaDb.person.update.mockResolvedValue(solo);
+    mockPrismaDb.person.updateMany.mockResolvedValue({ count: 1 });
+    mockPrismaDb.$transaction.mockResolvedValue([]);
+  });
+
+  // -------------------------------------------------------------------------
+  // The guard. `active` and `rotateLink` are live controls sharing this endpoint
+  // and they send NO email key. Without the `"email" in body` check, an absent
+  // email would normalise to null exactly like an intentional clear, and clicking
+  // Deactivate would wipe the person's address (or 409, since a multi-draw person
+  // always has siblings).
+  // -------------------------------------------------------------------------
+  it('deactivating a person who HAS an email and siblings never touches their email', async () => {
+    mockPrismaDb.person.findMany.mockResolvedValue([siblingRow]);
+    mockPrismaDb.person.update.mockResolvedValue({ ...solo, active: false });
+
+    const res = await patch({ active: false });
+
+    expect(res.status).toBe(200);
+    // The email pipeline is not merely skipped at the write - it never runs at all.
+    expect(mockPrismaDb.person.findMany).not.toHaveBeenCalled();
+    expect(mockPrismaDb.person.updateMany).not.toHaveBeenCalled();
+    expect(mockPrismaDb.person.update).toHaveBeenCalledWith({
+      where: { id: 'person-1' },
+      data: { active: false },
+    });
+  });
+
+  it('rotating a link for a person who HAS an email and siblings never touches their email', async () => {
+    mockPrismaDb.person.findMany.mockResolvedValue([siblingRow]);
+
+    const res = await patch({ rotateLink: true });
+
+    expect(res.status).toBe(200);
+    expect(mockPrismaDb.person.findMany).not.toHaveBeenCalled();
+    expect(mockPrismaDb.person.updateMany).not.toHaveBeenCalled();
+    expect(mockPrismaDb.person.update).toHaveBeenCalledWith({
+      where: { id: 'person-1' },
+      data: { personalLinkToken: 'tok_test' },
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // Normalising, setting, clearing
+  // -------------------------------------------------------------------------
+  it('trims and lowercases the address', async () => {
+    mockPrismaDb.person.findUnique.mockResolvedValue({ ...solo, email: null });
+
+    const res = await patch({ email: '  Nan@Example.COM  ' });
+
+    expect(res.status).toBe(200);
+    expect(mockPrismaDb.person.update).toHaveBeenCalledWith({
+      where: { id: 'person-1' },
+      data: { email: 'nan@example.com' },
+    });
+  });
+
+  it('sets an address on a person who had none, without a sibling lookup', async () => {
+    mockPrismaDb.person.findUnique.mockResolvedValue({ ...solo, email: null });
+
+    const res = await patch({ email: 'nan@example.com' });
+
+    expect(res.status).toBe(200);
+    // No old address, so the only lookup is "who already holds the new one".
+    expect(mockPrismaDb.person.findMany).toHaveBeenCalledTimes(1);
+    expect(mockPrismaDb.person.update).toHaveBeenCalledWith({
+      where: { id: 'person-1' },
+      data: { email: 'nan@example.com' },
+    });
+  });
+
+  it.each([
+    ['', 'empty string'],
+    ['   ', 'whitespace'],
+    [null, 'explicit null'],
+  ])(
+    'clears the address (%p, %s) without ever querying for holders of a blank address',
+    async (email: string | null, _label: string) => {
+      const res = await patch({ email });
+
+      expect(res.status).toBe(200);
+      expect(mockPrismaDb.person.update).toHaveBeenCalledWith({
+        where: { id: 'person-1' },
+        data: { email: null },
+      });
+      // where: { email: null } compiles to IS NULL, which would match every
+      // email-less person in the DB. Only the sibling lookup (on the OLD address)
+      // may run; the holders-of-the-new-address lookup must not.
+      expect(mockPrismaDb.person.findMany).toHaveBeenCalledTimes(1);
+      expect(mockPrismaDb.person.updateMany).not.toHaveBeenCalled();
+    },
+  );
+
+  it('rejects a malformed address', async () => {
+    const res = await patch({ email: 'not-an-email' });
+
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toMatch(/valid email/i);
+    expect(mockPrismaDb.person.update).not.toHaveBeenCalled();
+  });
+
+  it('treats setting the address it already has as a no-op, but still rotates the link', async () => {
+    const res = await patch({ email: 'NAN@example.com', rotateLink: true });
+
+    expect(res.status).toBe(200);
+    expect(mockPrismaDb.person.findMany).not.toHaveBeenCalled();
+    // The link is rotated, and `email` is NOT in the write - nothing about the
+    // address changed, so nothing about it is written.
+    expect(mockPrismaDb.person.update).toHaveBeenCalledWith({
+      where: { id: 'person-1' },
+      data: { personalLinkToken: 'tok_test' },
+    });
+  });
+
+  it('rejects a non-object body instead of throwing', async () => {
+    const req = new NextRequest(url, {
+      method: 'PATCH',
+      body: '"just a string"',
+      headers: { 'content-type': 'application/json' },
+    });
+    const res = await patchPerson(req, { params: { id: 'person-1' } } as any);
+    expect(res.status).toBe(400);
+  });
+
+  // -------------------------------------------------------------------------
+  // Scope: this draw, or all of them
+  // -------------------------------------------------------------------------
+  it('409s with the siblings listed when the person is in more than one draw', async () => {
+    mockPrismaDb.person.findMany
+      .mockResolvedValueOnce([siblingRow]) // holders of the OLD address (their other draw)
+      .mockResolvedValueOnce([]); // holders of the NEW address: nobody
+
+    const res = await patch({ email: 'new@example.com' });
+
+    expect(res.status).toBe(409);
+    const json = await res.json();
+    expect(json.needsConfirmation).toBe(true);
+    expect(json.siblings).toEqual([sibling]);
+    // Nobody else holds the new address, so this 409 is purely about SCOPE.
+    expect(json.linksTo).toEqual([]);
+    // The SERVER's canonical address, so the dialog cannot show a different one
+    // from the one about to be written.
+    expect(json.email).toBe('new@example.com');
+    expect(mockPrismaDb.person.update).not.toHaveBeenCalled();
+  });
+
+  it('never leaks personalLinkToken in a confirmation payload', async () => {
+    mockPrismaDb.person.findMany
+      .mockResolvedValueOnce([{ ...siblingRow, personalLinkToken: 'super-secret-token' }])
+      .mockResolvedValueOnce([]);
+
+    const res = await patch({ email: 'new@example.com' });
+
+    expect(res.status).toBe(409);
+    expect(JSON.stringify(await res.json())).not.toContain('super-secret-token');
+  });
+
+  it('applyToAll:false writes only the edited row', async () => {
+    mockPrismaDb.person.findMany
+      .mockResolvedValueOnce([siblingRow])
+      .mockResolvedValueOnce([]);
+
+    const res = await patch({ email: 'new@example.com', applyToAll: false });
+
+    expect(res.status).toBe(200);
+    expect(mockPrismaDb.person.update).toHaveBeenCalledWith({
+      where: { id: 'person-1' },
+      data: { email: 'new@example.com' },
+    });
+    expect(mockPrismaDb.person.updateMany).not.toHaveBeenCalled();
+  });
+
+  it('applyToAll:true writes the edited row and every sibling, atomically', async () => {
+    mockPrismaDb.person.findMany
+      .mockResolvedValueOnce([siblingRow])
+      .mockResolvedValueOnce([]);
+
+    const res = await patch({ email: 'new@example.com', applyToAll: true });
+
+    expect(res.status).toBe(200);
+    expect(mockPrismaDb.person.update).toHaveBeenCalledWith({
+      where: { id: 'person-1' },
+      data: { email: 'new@example.com' },
+    });
+    expect(mockPrismaDb.person.updateMany).toHaveBeenCalledWith({
+      where: { id: { in: ['person-2'] } },
+      data: { email: 'new@example.com' },
+    });
+    expect(mockPrismaDb.$transaction).toHaveBeenCalled();
+  });
+
+  // The original design fed ONE shared `data` object to updateMany, which would have
+  // written the SAME personalLinkToken to every sibling row (personalLinkToken is
+  // @unique -> P2002 -> 500) and let active:false deactivate the person in every
+  // group at once. applyToAll scopes the EMAIL only.
+  it('applyToAll:true + rotateLink rotates only the edited row, never the siblings', async () => {
+    mockPrismaDb.person.findMany
+      .mockResolvedValueOnce([siblingRow])
+      .mockResolvedValueOnce([]);
+
+    const res = await patch({ email: 'new@example.com', applyToAll: true, rotateLink: true });
+
+    expect(res.status).toBe(200);
+    // The token lands on this row only...
+    expect(mockPrismaDb.person.update).toHaveBeenCalledWith({
+      where: { id: 'person-1' },
+      data: { personalLinkToken: 'tok_test', email: 'new@example.com' },
+    });
+    // ...and the sibling gets the address and nothing else.
+    expect(mockPrismaDb.person.updateMany).toHaveBeenCalledWith({
+      where: { id: { in: ['person-2'] } },
+      data: { email: 'new@example.com' },
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // The merge guard. This is the one that protects the draw.
+  // -------------------------------------------------------------------------
+  it('409s when the new address already belongs to someone in another draw', async () => {
+    mockPrismaDb.person.findUnique.mockResolvedValue({ ...solo, email: null });
+    mockPrismaDb.person.findMany.mockResolvedValue([
+      { id: 'person-9', name: 'Alice', groupId: 'group-2', active: true, group: { name: 'Christmas 2027' } },
+    ]);
+
+    const res = await patch({ email: 'alice@example.com' });
+
+    expect(res.status).toBe(409);
+    const json = await res.json();
+    expect(json.linksTo).toEqual([
+      { id: 'person-9', name: 'Alice', groupId: 'group-2', groupName: 'Christmas 2027', active: true },
+    ]);
+    expect(mockPrismaDb.person.update).not.toHaveBeenCalled();
+  });
+
+  // lib/draws.ts only counts ACTIVE people, so if the link lookup filtered active
+  // too, an inactive holder would be skipped, the edit would save silently, and the
+  // ordinary reactivate button (which has no email check) would complete the merge
+  // afterwards for free.
+  it('409s even when the holder of the new address is INACTIVE', async () => {
+    mockPrismaDb.person.findUnique.mockResolvedValue({ ...solo, email: null });
+    mockPrismaDb.person.findMany.mockResolvedValue([
+      { id: 'person-9', name: 'Yuki', groupId: 'group-2', active: false, group: { name: 'Christmas 2026' } },
+    ]);
+
+    const res = await patch({ email: 'yuki@example.com' });
+
+    expect(res.status).toBe(409);
+    expect((await res.json()).linksTo[0]).toMatchObject({ name: 'Yuki', active: false });
+    expect(mockPrismaDb.person.update).not.toHaveBeenCalled();
+  });
+
+  it('proceeds once the admin acknowledges the exact people they were shown', async () => {
+    mockPrismaDb.person.findUnique.mockResolvedValue({ ...solo, email: null });
+    mockPrismaDb.person.findMany.mockResolvedValue([
+      { id: 'person-9', name: 'Alice', groupId: 'group-2', active: true, group: { name: 'Christmas 2027' } },
+    ]);
+
+    const res = await patch({ email: 'alice@example.com', acknowledgedLinkIds: ['person-9'] });
+
+    expect(res.status).toBe(200);
+    expect(mockPrismaDb.person.update).toHaveBeenCalled();
+  });
+
+  // A bare `confirm: true` boolean would let a stale retry bless a merge the admin
+  // never saw. Consent is bound to the specific people the dialog rendered.
+  it('re-409s when the acknowledgement does not match the current holders', async () => {
+    mockPrismaDb.person.findUnique.mockResolvedValue({ ...solo, email: null });
+    mockPrismaDb.person.findMany.mockResolvedValue([
+      { id: 'person-9', name: 'Alice', groupId: 'group-2', active: true, group: { name: 'Christmas 2027' } },
+      { id: 'person-10', name: 'Bob', groupId: 'group-3', active: true, group: { name: 'Christmas 2025' } },
+    ]);
+
+    // The admin only ever saw person-9; person-10 appeared since.
+    const res = await patch({ email: 'alice@example.com', acknowledgedLinkIds: ['person-9'] });
+
+    expect(res.status).toBe(409);
+    expect(mockPrismaDb.person.update).not.toHaveBeenCalled();
+  });
+
+  // -------------------------------------------------------------------------
+  // Uniqueness. The DB index is the real guard; this produces a friendly message.
+  // -------------------------------------------------------------------------
+  it('rejects an address already used inside the same group, without offering to link it', async () => {
+    mockPrismaDb.person.findUnique.mockResolvedValue({ ...solo, email: null });
+    mockPrismaDb.person.findMany.mockResolvedValue([
+      { id: 'person-3', name: 'Someone Else', groupId: 'group-1', active: true, group: { name: 'The Family Draw' } },
+    ]);
+
+    const res = await patch({ email: 'taken@example.com' });
+
+    // 400, NOT a 409: @@unique([groupId, email]) would refuse this write, so the
+    // dialog must never offer to "confirm" a link that then fails.
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toMatch(/already used in this group/i);
+    expect(mockPrismaDb.person.update).not.toHaveBeenCalled();
+  });
+
+  // The address is free in THIS group but taken in the sibling's group, so fanning
+  // it out would trip @@unique([groupId, email]) there. Only reachable AFTER the
+  // admin confirms "all their draws", which is why the dialog has to be able to
+  // show a 400 (it used to render it underneath the overlay, invisibly).
+  it('rejects an applyToAll fan-out that would collide inside a sibling draw, naming the draw', async () => {
+    mockPrismaDb.person.findMany
+      .mockResolvedValueOnce([siblingRow]) // their other draw
+      .mockResolvedValueOnce([
+        // Someone in the SIBLING's group already holds the new address.
+        { id: 'person-7', name: 'Someone Else', groupId: 'group-2', active: true, group: { name: 'Christmas 2027' } },
+      ]);
+
+    const res = await patch({
+      email: 'new@example.com',
+      applyToAll: true,
+      acknowledgedLinkIds: ['person-7'],
+    });
+
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toBe('Email is already used in Christmas 2027');
+    expect(mockPrismaDb.person.update).not.toHaveBeenCalled();
+    expect(mockPrismaDb.person.updateMany).not.toHaveBeenCalled();
+  });
+
+  // Same hazard as the "email" in body gate, one level down: a non-string value
+  // would normalise to null and silently CLEAR the address.
+  it('rejects a non-string email value rather than silently clearing the address', async () => {
+    const res = await patch({ email: 42 });
+
+    expect(res.status).toBe(400);
+    expect(mockPrismaDb.person.update).not.toHaveBeenCalled();
+  });
+
+  it('reports how many draws the address actually landed in', async () => {
+    mockPrismaDb.person.findMany
+      .mockResolvedValueOnce([siblingRow])
+      .mockResolvedValueOnce([]);
+
+    const res = await patch({ email: 'new@example.com', applyToAll: true });
+
+    // The admin only ever sees ONE group's people list, so a write that followed
+    // them into another draw has to be reported back or it is invisible.
+    expect((await res.json()).drawsUpdated).toBe(2);
+  });
+
+  it('surfaces a unique-constraint violation as a 400, never a 500', async () => {
+    mockPrismaDb.person.findUnique.mockResolvedValue({ ...solo, email: null });
+    const p2002 = Object.assign(new Error('Unique constraint failed'), { code: 'P2002' });
+    // Once, not a persistent default: jest.clearAllMocks() does NOT remove mock
+    // implementations, so a blanket rejection here would break every later test.
+    mockPrismaDb.person.update.mockRejectedValueOnce(p2002);
+
+    const res = await patch({ email: 'clash@example.com' });
+
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toMatch(/already used/i);
+  });
+});
+
+// ===========================================================================
+// 10d. POST /api/people/[id]/resend - re-send ONE person their match email
+//
+// Fixing a wrong address is useless on its own: on an already-sent round the only
+// delivery path was re-POSTing /api/rounds/send, which re-emails EVERY giver in
+// the group. This mails exactly one person, and never touches the round status.
+// ===========================================================================
+describe('POST /api/people/[id]/resend', () => {
+  const url = 'http://localhost:3000/api/people/person-1/resend';
+  const resend = () =>
+    resendMatch(makePostRequest(url, {}) as any, { params: { id: 'person-1' } } as any);
+
+  const person = {
+    id: 'person-1',
+    groupId: 'group-1',
+    name: 'Nan',
+    email: 'nan@example.com',
+    personalLinkToken: 'tok_nan',
+    active: true,
+    group: { name: 'Christmas 2026', year: 2026, organiserName: 'Chris', personalMessage: 'Ho ho ho' },
+  };
+
+  beforeEach(() => {
+    mockSession.isAdmin = true;
+    mockPrismaDb.person.findUnique.mockResolvedValue(person);
+    mockPrismaDb.round.findUnique.mockResolvedValue({ id: 'round-1', status: 'sent' });
+    mockPrismaDb.assignment.findFirst.mockResolvedValue({ id: 'a-1', giverId: 'person-1' });
+    (sendMatchReadyEmail as jest.Mock).mockResolvedValue(true);
+  });
+
+  it("looks the round up by the person's own group and year", async () => {
+    await resend();
+    expect(mockPrismaDb.round.findUnique).toHaveBeenCalledWith({
+      where: { groupId_year: { groupId: 'group-1', year: 2026 } },
+    });
+  });
+
+  it('returns 403 for a non-admin', async () => {
+    delete mockSession.isAdmin;
+    const res = await resend();
+    expect(res.status).toBe(403);
+    expect(sendMatchReadyEmail).not.toHaveBeenCalled();
+  });
+
+  it('mails exactly that one person and echoes the address it sent to', async () => {
+    const res = await resend();
+
+    expect(res.status).toBe(200);
+    // The echo is the guard: /p/<token> never expires, so a typo'd address gets a
+    // permanent login. Naming it back is what makes the typo visible.
+    expect(await res.json()).toEqual({ sent: true, email: 'nan@example.com' });
+    expect(sendMatchReadyEmail).toHaveBeenCalledTimes(1);
+    expect(sendMatchReadyEmail).toHaveBeenCalledWith(
+      'nan@example.com',
+      'Nan',
+      'Christmas 2026',
+      expect.stringContaining('/p/tok_nan'),
+      'Chris',
+      'Ho ho ho',
+    );
+  });
+
+  it('never touches the round status', async () => {
+    await resend();
+    expect(mockPrismaDb.round.update).not.toHaveBeenCalled();
+  });
+
+  it('returns 404 when the person does not exist', async () => {
+    mockPrismaDb.person.findUnique.mockResolvedValue(null);
+    const res = await resend();
+    expect(res.status).toBe(404);
+    expect(sendMatchReadyEmail).not.toHaveBeenCalled();
+  });
+
+  it('refuses a deactivated person', async () => {
+    mockPrismaDb.person.findUnique.mockResolvedValue({ ...person, active: false });
+    const res = await resend();
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toMatch(/deactivated/i);
+    expect(sendMatchReadyEmail).not.toHaveBeenCalled();
+  });
+
+  it('refuses a person with no email', async () => {
+    mockPrismaDb.person.findUnique.mockResolvedValue({ ...person, email: null });
+    const res = await resend();
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toMatch(/no email/i);
+    expect(sendMatchReadyEmail).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    [null, 'no round at all'],
+    [{ id: 'round-1', status: 'generated' }, 'a round that has not been sent'],
+    [{ id: 'round-1', status: 'draft' }, 'a draft round'],
+  ])('refuses to send against %p (%s)', async (round: { id: string; status: string } | null, _label: string) => {
+    mockPrismaDb.round.findUnique.mockResolvedValue(round);
+    const res = await resend();
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toMatch(/not been sent/i);
+    expect(sendMatchReadyEmail).not.toHaveBeenCalled();
+  });
+
+  // Someone added AFTER the draw was generated has no match. Telling them their
+  // match is ready would be a lie: they would sign in to an empty page.
+  it('refuses a person who has no assignment in the current round', async () => {
+    mockPrismaDb.assignment.findFirst.mockResolvedValue(null);
+    const res = await resend();
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toMatch(/not in the current draw/i);
+    expect(sendMatchReadyEmail).not.toHaveBeenCalled();
+  });
+
+  it('surfaces a failed send as a 502, never a silent success', async () => {
+    // Once, not a persistent default: jest.clearAllMocks() does not remove mock
+    // implementations, so a blanket mockResolvedValue(false) here would make every
+    // later test's mail send fail too (it silently broke POST /api/rounds/send).
+    (sendMatchReadyEmail as jest.Mock).mockResolvedValueOnce(false);
+    const res = await resend();
+    expect(res.status).toBe(502);
+    expect((await res.json()).error).toMatch(/could not send/i);
   });
 });
 
