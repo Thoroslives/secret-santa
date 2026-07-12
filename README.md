@@ -160,6 +160,33 @@ Group creation is admin-only; there is no public sign-up flow. See
 `.env.example` for the full list of admin-auth variables with placeholder
 values.
 
+## Continuous Integration and Container Image
+
+GitHub Actions (`.github/workflows/ci.yml`) runs on every push to `main`,
+every `v*` tag, and every pull request:
+
+- **test** - `npm ci`, `prisma generate`, lint, `tsc --noEmit`, the jest
+  unit suite, and a production `next build`.
+- **e2e** - the Playwright browser smoke of the key flows.
+- **docker** - builds the single container and publishes it to the GitHub
+  Container Registry. Runs only on pushes (never on pull requests), and
+  only after `test` passes.
+
+Published image: `ghcr.io/<owner>/secret-santa`. Tags:
+
+- push to `main` -> `latest` and `sha-<short>`
+- `vX.Y.Z` tag -> `X.Y.Z`, `X.Y`, and `latest`
+
+Pull and run the published image instead of building locally:
+
+```bash
+docker run -d --name secret-santa \
+  -e SESSION_SECRET="$(openssl rand -base64 32)" \
+  -e ADMIN_BREAKGLASS_PASSWORD="choose-a-strong-password" \
+  -v secret_santa_data:/data -p 3000:3000 \
+  ghcr.io/<owner>/secret-santa:latest
+```
+
 ## Deployment
 
 ### Environment Variables
