@@ -8,7 +8,7 @@ interface Person {
   name: string;
   email?: string;
   personalLinkToken: string;
-  _count: { wishlistItems: number };
+  _count: { wishlistItems: number; suggestionsBy: number };
 }
 
 interface Assignment {
@@ -37,6 +37,23 @@ export default function AdminDashboard() {
   const [error, setError] = useState("");
   const [successMessage, setSuccessMessage] = useState("");
   const [shareLinks, setShareLinks] = useState<{ name: string; link: string }[]>([]);
+  const [copiedKey, setCopiedKey] = useState<string | null>(null);
+
+  // Full shareable participant link. Uses NEXT_PUBLIC_APP_URL when set (e.g.
+  // https://santa.north.cx), otherwise auto-detects the current site origin in
+  // the browser - so the copied link always points where the admin is viewing.
+  const personalLink = (token: string) =>
+    `${process.env.NEXT_PUBLIC_APP_URL || (typeof window !== "undefined" ? window.location.origin : "")}/p/${token}`;
+
+  const copyToClipboard = async (text: string, key: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopiedKey(key);
+      setTimeout(() => setCopiedKey(null), 2000);
+    } catch {
+      // Clipboard unavailable (e.g. insecure context) - the full link stays visible to copy by hand.
+    }
+  };
   const [groups, setGroups] = useState<GroupSummary[]>([]);
   const [activeGroupId, setActiveGroupId] = useState("");
   const [newGroupName, setNewGroupName] = useState("");
@@ -501,28 +518,35 @@ export default function AdminDashboard() {
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-santa-dark">
-        <div className="text-xl text-santa-gold">Loading...</div>
+      <div className="flex min-h-screen items-center justify-center bg-base">
+        <div className="text-xl text-ink-muted">Loading...</div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-santa-dark p-4 md:p-8">
-      <div className="max-w-7xl mx-auto">
-        <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4 mb-8">
+    <div className="min-h-screen bg-base p-4 md:p-8">
+      <div className="mx-auto max-w-7xl">
+        <div className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div className="min-w-0">
-            <h1 className="text-2xl sm:text-4xl font-bold text-santa-red font-display">Admin Dashboard</h1>
+            <h1 className="font-display text-2xl font-medium tracking-[-0.02em] text-ink-strong sm:text-4xl">Admin Dashboard</h1>
             {groups.length > 0 && (
-              <div className="flex items-center gap-2 mt-2">
-                <label htmlFor="groupPicker" className="text-sm text-gray-400">
+              <div className="mt-2 flex items-center gap-2">
+                <label htmlFor="groupPicker" className="text-sm text-ink-muted">
                   Group
                 </label>
+
                 <select
                   id="groupPicker"
                   value={activeGroupId}
                   onChange={(e) => handleSelectGroup(e.target.value)}
-                  className="px-3 py-2 bg-santa-dark border border-white/10 rounded-lg text-santa-snow text-sm sm:text-base max-w-full"
+                  className="max-w-full appearance-none rounded-sm border border-border-strong bg-raised py-2 pl-3 pr-8 text-sm text-ink sm:text-base"
+                  style={{
+                    backgroundImage:
+                      "url(\"data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIxNiIgaGVpZ2h0PSIxNiIgdmlld0JveD0iMCAwIDE2IDE2IiBmaWxsPSJub25lIiBzdHJva2U9IiNhMzlhOGYiIHN0cm9rZS13aWR0aD0iMS41IiBzdHJva2UtbGluZWNhcD0icm91bmQiIHN0cm9rZS1saW5lam9pbj0icm91bmQiPjxwYXRoIGQ9Ik00IDZsNCA0IDQtNCIvPjwvc3ZnPg==\")",
+                    backgroundRepeat: "no-repeat",
+                    backgroundPosition: "right 0.6rem center",
+                  }}
                 >
                   {groups.map((g) => (
                     <option key={g.id} value={g.id}>
@@ -530,38 +554,39 @@ export default function AdminDashboard() {
                     </option>
                   ))}
                 </select>
+
               </div>
             )}
           </div>
           <button
             onClick={handleLogout}
-            className="self-start sm:self-auto bg-white/10 text-santa-snow px-4 py-2 rounded-lg hover:bg-white/20 transition border border-white/10 min-h-[44px]"
+            className="min-h-[44px] self-start rounded-sm border border-border px-4 py-2 text-ink-muted transition-colors hover:bg-raised hover:text-ink sm:self-auto"
           >
             Logout
           </button>
         </div>
 
         {error && (
-          <div className="bg-santa-red/10 border border-santa-red/30 text-santa-red px-4 py-3 rounded-lg mb-4">
+          <div className="mb-4 rounded-md border border-danger/30 bg-danger/10 px-4 py-3 text-danger">
             {error}
           </div>
         )}
 
         {successMessage && (
-          <div className="bg-santa-green/10 border border-santa-green/30 text-santa-green px-4 py-3 rounded-lg mb-4">
+          <div className="mb-4 rounded-md border border-success/30 bg-success/10 px-4 py-3 text-success">
             {successMessage}
           </div>
         )}
 
         {groups.length === 0 ? (
-          <div className="bg-[#151528] p-6 rounded-2xl border border-white/10 card-glow max-w-lg">
-            <h2 className="text-2xl font-bold text-santa-snow mb-2">No groups yet</h2>
-            <p className="text-gray-400 mb-4">
+          <div className="max-w-lg rounded-md border border-border bg-surface p-6 shadow-elev-1">
+            <h2 className="mb-2 text-xl font-semibold text-ink-strong">No groups yet</h2>
+            <p className="mb-4 text-ink-muted">
               Create a group to start administering people, assignments, and settings.
             </p>
             <form onSubmit={handleCreateGroup} className="space-y-4">
               <div>
-                <label htmlFor="newGroupName" className="block text-sm font-medium text-gray-300 mb-2">
+                <label htmlFor="newGroupName" className="mb-2 block text-sm font-medium text-ink-muted">
                   Group name
                 </label>
                 <input
@@ -569,14 +594,14 @@ export default function AdminDashboard() {
                   id="newGroupName"
                   value={newGroupName}
                   onChange={(e) => setNewGroupName(e.target.value)}
-                  className="w-full px-4 py-2 bg-santa-dark border border-white/10 rounded-lg focus:ring-2 focus:ring-santa-gold focus:border-transparent text-santa-snow placeholder-gray-500"
+                  className="w-full rounded-sm border border-border bg-raised px-4 py-2 text-ink placeholder-ink-muted focus:border-transparent focus:ring-2 focus:ring-accent"
                   placeholder="Smith Family Secret Santa"
                   required
                 />
               </div>
               <button
                 type="submit"
-                className="w-full bg-santa-green text-white py-2 rounded-xl font-semibold hover:bg-santa-green-dark transition-all duration-300 hover:scale-105 transform"
+                className="w-full rounded-sm bg-primary py-2 font-semibold text-primary-on transition-colors hover:bg-primary-hover"
               >
                 Create group
               </button>
@@ -584,46 +609,46 @@ export default function AdminDashboard() {
           </div>
         ) : (
           <>
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+          <div className="grid grid-cols-1 gap-8 lg:grid-cols-3">
             {/* Add Person Section */}
-            <div className="bg-[#151528] p-6 rounded-2xl border border-white/10 card-glow">
-              <h2 className="text-2xl font-bold text-santa-snow mb-4">Add Person</h2>
+            <div className="rounded-md border border-border bg-surface p-6 shadow-elev-1">
+              <h2 className="mb-4 text-xl font-semibold text-ink-strong">Add Person</h2>
               <form onSubmit={handleAddPerson} className="space-y-4">
                 <div>
-                  <label htmlFor="name" className="block text-sm font-medium text-gray-300 mb-2">
-                    Name <span className="text-santa-red">*</span>
+                  <label htmlFor="name" className="mb-2 block text-sm font-medium text-ink-muted">
+                    Name <span className="text-danger">*</span>
                   </label>
                   <input
                     type="text"
                     id="name"
                     value={newPersonName}
                     onChange={(e) => setNewPersonName(e.target.value)}
-                    className="w-full px-4 py-2 bg-santa-dark border border-white/10 rounded-lg focus:ring-2 focus:ring-santa-gold focus:border-transparent text-santa-snow placeholder-gray-500"
+                    className="w-full rounded-sm border border-border bg-raised px-4 py-2 text-ink placeholder-ink-muted focus:border-transparent focus:ring-2 focus:ring-accent"
                     placeholder="Enter person's name"
                     required
                   />
                 </div>
 
                 <div>
-                  <label htmlFor="email" className="block text-sm font-medium text-gray-300 mb-2">
-                    Email <span className="text-gray-500">(optional)</span>
+                  <label htmlFor="email" className="mb-2 block text-sm font-medium text-ink-muted">
+                    Email <span className="text-ink-muted">(optional)</span>
                   </label>
                   <input
                     type="email"
                     id="email"
                     value={newPersonEmail}
                     onChange={(e) => setNewPersonEmail(e.target.value)}
-                    className="w-full px-4 py-2 bg-santa-dark border border-white/10 rounded-lg focus:ring-2 focus:ring-santa-gold focus:border-transparent text-santa-snow placeholder-gray-500"
+                    className="w-full rounded-sm border border-border bg-raised px-4 py-2 text-ink placeholder-ink-muted focus:border-transparent focus:ring-2 focus:ring-accent"
                     placeholder="person@example.com"
                   />
-                  <p className="text-xs text-gray-500 mt-1">
+                  <p className="mt-1 text-xs text-ink-muted">
                     If provided, they can request their personal login link by email (self-service)
                   </p>
                 </div>
 
                 <button
                   type="submit"
-                  className="w-full bg-santa-green text-white py-2 rounded-xl font-semibold hover:bg-santa-green-dark transition-all duration-300 hover:scale-105 transform"
+                  className="w-full rounded-sm bg-primary py-2 font-semibold text-primary-on transition-colors hover:bg-primary-hover"
                 >
                   Add Person
                 </button>
@@ -631,19 +656,19 @@ export default function AdminDashboard() {
             </div>
 
             {/* Budget Management */}
-            <div className="bg-[#151528] p-6 rounded-2xl border border-white/10 card-glow">
-              <h2 className="text-2xl font-bold text-santa-snow mb-4">Gift Budget</h2>
+            <div className="rounded-md border border-border bg-surface p-6 shadow-elev-1">
+              <h2 className="mb-4 text-xl font-semibold text-ink-strong">Gift Budget</h2>
               <form onSubmit={handleUpdateBudget} className="space-y-4">
                 <div>
-                  <label htmlFor="budgetAmount" className="block text-sm font-medium text-gray-300 mb-2">
-                    Budget Amount <span className="text-gray-500">(optional)</span>
+                  <label htmlFor="budgetAmount" className="mb-2 block text-sm font-medium text-ink-muted">
+                    Budget Amount <span className="text-ink-muted">(optional)</span>
                   </label>
                   <input
                     type="number"
                     id="budgetAmount"
                     value={budgetAmount}
                     onChange={(e) => setBudgetAmount(e.target.value)}
-                    className="w-full px-4 py-2 bg-santa-dark border border-white/10 rounded-lg focus:ring-2 focus:ring-santa-gold focus:border-transparent text-santa-snow placeholder-gray-500"
+                    className="w-full rounded-sm border border-border bg-raised px-4 py-2 text-ink placeholder-ink-muted focus:border-transparent focus:ring-2 focus:ring-accent"
                     placeholder="50.00"
                     step="0.01"
                     min="0"
@@ -651,14 +676,14 @@ export default function AdminDashboard() {
                 </div>
 
                 <div>
-                  <label htmlFor="budgetCurrency" className="block text-sm font-medium text-gray-300 mb-2">
+                  <label htmlFor="budgetCurrency" className="mb-2 block text-sm font-medium text-ink-muted">
                     Currency
                   </label>
                   <select
                     id="budgetCurrency"
                     value={budgetCurrency}
                     onChange={(e) => setBudgetCurrency(e.target.value)}
-                    className="w-full px-4 py-2 bg-santa-dark border border-white/10 rounded-lg focus:ring-2 focus:ring-santa-gold focus:border-transparent text-santa-snow"
+                    className="w-full rounded-sm border border-border bg-raised px-4 py-2 text-ink focus:border-transparent focus:ring-2 focus:ring-accent"
                   >
                     <option value="USD">USD - US Dollar</option>
                     <option value="EUR">EUR - Euro</option>
@@ -681,9 +706,9 @@ export default function AdminDashboard() {
                   </select>
                 </div>
 
-                <div className="text-sm text-gray-400">
+                <div className="text-sm text-ink-muted">
                   {budget.budgetAmount ? (
-                    <p>Current budget: <span className="font-semibold text-santa-gold">{budget.budgetCurrency} {budget.budgetAmount}</span></p>
+                    <p>Current budget: <span className="font-semibold text-accent-text">{budget.budgetCurrency} {budget.budgetAmount}</span></p>
                   ) : (
                     <p className="italic">No budget set</p>
                   )}
@@ -691,7 +716,7 @@ export default function AdminDashboard() {
 
                 <button
                   type="submit"
-                  className="w-full bg-santa-gold text-santa-dark py-2 rounded-xl font-semibold hover:bg-santa-gold-dark transition-all duration-300 hover:scale-105 transform"
+                  className="w-full rounded-sm bg-primary py-2 font-semibold text-primary-on transition-colors hover:bg-primary-hover"
                 >
                   Update Budget
                 </button>
@@ -699,18 +724,18 @@ export default function AdminDashboard() {
             </div>
 
             {/* Secret Santa Assignments */}
-            <div className="bg-[#151528] p-6 rounded-2xl border border-white/10 card-glow">
-              <h2 className="text-2xl font-bold text-santa-snow mb-4">Secret Santa</h2>
+            <div className="rounded-md border border-border bg-surface p-6 shadow-elev-1">
+              <h2 className="mb-4 text-xl font-semibold text-ink-strong">Secret Santa</h2>
               <div className="space-y-4">
-                <p className="text-gray-400">
+                <p className="text-ink-muted">
                   {people.length} people registered
-                  {assignments.length > 0 && ` \u2022 ${assignments.length} assignments created`}
+                  {assignments.length > 0 && ` • ${assignments.length} assignments created`}
                 </p>
                 {assignments.length === 0 ? (
                   <button
                     onClick={handleGenerateAssignments}
                     disabled={people.length < 3}
-                    className="w-full bg-santa-red text-white py-2 rounded-xl font-semibold hover:bg-santa-red-dark transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed hover:scale-105 transform"
+                    className="w-full rounded-sm bg-primary py-2 font-semibold text-primary-on transition-colors hover:bg-primary-hover disabled:cursor-not-allowed disabled:opacity-50"
                   >
                     Generate Assignments
                   </button>
@@ -718,39 +743,48 @@ export default function AdminDashboard() {
                   <>
                     <button
                       onClick={handleSendMatches}
-                      className="w-full bg-green-600 text-white py-2 rounded-xl font-semibold hover:bg-green-700 transition-all duration-300 hover:scale-105 transform"
+                      className="w-full rounded-sm bg-primary py-2 font-semibold text-primary-on transition-colors hover:bg-primary-hover"
                     >
                       Send matches
                     </button>
                     <button
                       onClick={handleDeleteAssignments}
-                      className="w-full bg-santa-gold text-santa-dark py-2 rounded-xl font-semibold hover:bg-santa-gold-dark transition-all duration-300 hover:scale-105 transform"
+                      className="w-full rounded-sm border border-danger/40 py-2 font-semibold text-danger transition-colors hover:bg-danger/10"
                     >
                       Delete &amp; Regenerate
                     </button>
                   </>
                 )}
                 {people.length < 3 && (
-                  <p className="text-sm text-santa-red">Need at least 3 people to generate assignments</p>
+                  <p className="text-sm text-danger">Need at least 3 people to generate assignments</p>
                 )}
-                <div className="pt-4 mt-4 border-t border-white/10">
+                <div className="mt-4 border-t border-border pt-4">
                   <button
                     onClick={handleRollover}
-                    className="w-full bg-white/10 text-santa-snow py-2 rounded-xl font-semibold hover:bg-white/20 transition border border-white/10"
+                    className="w-full rounded-sm border border-border py-2 font-semibold text-ink transition-colors hover:bg-raised"
                   >
                     Start next year
                   </button>
-                  <p className="text-xs text-gray-500 mt-2">
+                  <p className="mt-2 text-xs text-ink-muted">
                     Moves this year&apos;s matches to history and resets everyone&apos;s wishlist for the new year.
                   </p>
                 </div>
                 {shareLinks.length > 0 && (
-                  <div className="mt-4 text-sm text-gray-300">
-                    <p className="font-semibold text-santa-snow mb-1">Personal links (copy to share manually):</p>
+                  <div className="mt-4 text-sm text-ink-muted">
+                    <p className="mb-1 font-semibold text-ink-strong">Personal links (copy to share manually):</p>
                     <ul className="space-y-1">
                       {shareLinks.map((s) => (
-                        <li key={s.link} className="break-all">
-                          <span className="text-santa-snow">{s.name}:</span> {s.link}
+                        <li key={s.link} className="flex items-center gap-2">
+                          <span className="min-w-0 flex-1 break-all">
+                            <span className="text-ink-strong">{s.name}:</span> {s.link}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => copyToClipboard(s.link, s.link)}
+                            className="shrink-0 rounded-sm border border-border px-2 py-1 text-xs font-medium text-ink-muted transition-colors hover:bg-raised hover:text-ink"
+                          >
+                            {copiedKey === s.link ? "Copied" : "Copy"}
+                          </button>
                         </li>
                       ))}
                     </ul>
@@ -760,11 +794,11 @@ export default function AdminDashboard() {
             </div>
 
             {/* Group Settings */}
-            <div className="bg-[#151528] p-6 rounded-2xl border border-white/10 card-glow">
-              <h2 className="text-2xl font-bold text-santa-snow mb-4">Settings</h2>
+            <div className="rounded-md border border-border bg-surface p-6 shadow-elev-1">
+              <h2 className="mb-4 text-xl font-semibold text-ink-strong">Settings</h2>
               <form onSubmit={handleUpdateSettings} className="space-y-4">
                 <div>
-                  <label htmlFor="suggestionCap" className="block text-sm font-medium text-gray-300 mb-2">
+                  <label htmlFor="suggestionCap" className="mb-2 block text-sm font-medium text-ink-muted">
                     Suggestion Cap
                   </label>
                   <input
@@ -772,18 +806,18 @@ export default function AdminDashboard() {
                     id="suggestionCap"
                     value={suggestionCap}
                     onChange={(e) => setSuggestionCap(Number(e.target.value))}
-                    className="w-full px-4 py-2 bg-santa-dark border border-white/10 rounded-lg focus:ring-2 focus:ring-santa-gold focus:border-transparent text-santa-snow placeholder-gray-500"
+                    className="w-full rounded-sm border border-border bg-raised px-4 py-2 text-ink placeholder-ink-muted focus:border-transparent focus:ring-2 focus:ring-accent"
                     min="0"
                     max="10"
                     step="1"
                   />
-                  <p className="text-xs text-gray-500 mt-1">
+                  <p className="mt-1 text-xs text-ink-muted">
                     Max gift suggestions each person can add for their match (0-10).
                   </p>
                 </div>
 
                 <div>
-                  <label htmlFor="previousYearMemory" className="block text-sm font-medium text-gray-300 mb-2">
+                  <label htmlFor="previousYearMemory" className="mb-2 block text-sm font-medium text-ink-muted">
                     Previous Year Memory
                   </label>
                   <input
@@ -791,19 +825,19 @@ export default function AdminDashboard() {
                     id="previousYearMemory"
                     value={previousYearMemory}
                     onChange={(e) => setPreviousYearMemory(Number(e.target.value))}
-                    className="w-full px-4 py-2 bg-santa-dark border border-white/10 rounded-lg focus:ring-2 focus:ring-santa-gold focus:border-transparent text-santa-snow placeholder-gray-500"
+                    className="w-full rounded-sm border border-border bg-raised px-4 py-2 text-ink placeholder-ink-muted focus:border-transparent focus:ring-2 focus:ring-accent"
                     min="0"
                     max="10"
                     step="1"
                   />
-                  <p className="text-xs text-gray-500 mt-1">
+                  <p className="mt-1 text-xs text-ink-muted">
                     How many previous years&apos; pairs to avoid repeating in the draw (0-10).
                   </p>
                 </div>
 
                 <button
                   type="submit"
-                  className="w-full bg-santa-gold text-santa-dark py-2 rounded-xl font-semibold hover:bg-santa-gold-dark transition-all duration-300 hover:scale-105 transform"
+                  className="w-full rounded-sm bg-primary py-2 font-semibold text-primary-on transition-colors hover:bg-primary-hover"
                 >
                   Save Settings
                 </button>
@@ -813,17 +847,17 @@ export default function AdminDashboard() {
 
           {/* Seed last year's pairs - one-time backfill so this year's draw can
               avoid repeating them, even before this app has ever run a draw. */}
-          <details className="mt-8 bg-[#151528] p-6 rounded-2xl border border-white/10 card-glow">
-            <summary className="text-2xl font-bold text-santa-snow cursor-pointer">
+          <details className="mt-8 rounded-md border border-border bg-surface p-6 shadow-elev-1">
+            <summary className="cursor-pointer text-xl font-semibold text-ink-strong">
               Seed last year&apos;s pairs
             </summary>
-            <p className="text-sm text-gray-400 mt-2 mb-4">
+            <p className="mb-4 mt-2 text-sm text-ink-muted">
               Record who gave to whom last year by hand, so this year&apos;s draw knows to avoid repeating those
               pairs. Only needed once, to backfill history from before this app was used.
             </p>
             <form onSubmit={handleSeedSubmit} className="space-y-4">
               <div>
-                <label htmlFor="seedYear" className="block text-sm font-medium text-gray-300 mb-2">
+                <label htmlFor="seedYear" className="mb-2 block text-sm font-medium text-ink-muted">
                   Year
                 </label>
                 <input
@@ -831,17 +865,17 @@ export default function AdminDashboard() {
                   id="seedYear"
                   value={seedYear}
                   onChange={(e) => setSeedYear(e.target.value)}
-                  className="w-full sm:w-40 px-4 py-2 bg-santa-dark border border-white/10 rounded-lg focus:ring-2 focus:ring-santa-gold focus:border-transparent text-santa-snow"
+                  className="w-full rounded-sm border border-border bg-raised px-4 py-2 text-ink focus:border-transparent focus:ring-2 focus:ring-accent sm:w-40"
                 />
               </div>
 
               <div className="space-y-3">
                 {seedPairs.map((pair, index) => (
-                  <div key={index} className="flex flex-col sm:flex-row gap-2 sm:items-center">
+                  <div key={index} className="flex flex-col gap-2 sm:flex-row sm:items-center">
                     <select
                       value={pair.giverId}
                       onChange={(e) => handleSeedRowChange(index, "giverId", e.target.value)}
-                      className="w-full px-3 py-2 bg-santa-dark border border-white/10 rounded-lg text-santa-snow"
+                      className="w-full rounded-sm border border-border bg-raised px-3 py-2 text-ink"
                     >
                       <option value="">Giver...</option>
                       {people.map((person) => (
@@ -850,11 +884,11 @@ export default function AdminDashboard() {
                         </option>
                       ))}
                     </select>
-                    <span className="text-gray-500 hidden sm:inline">&rarr;</span>
+                    <span className="hidden text-ink-muted sm:inline">&rarr;</span>
                     <select
                       value={pair.receiverId}
                       onChange={(e) => handleSeedRowChange(index, "receiverId", e.target.value)}
-                      className="w-full px-3 py-2 bg-santa-dark border border-white/10 rounded-lg text-santa-snow"
+                      className="w-full rounded-sm border border-border bg-raised px-3 py-2 text-ink"
                     >
                       <option value="">Receiver...</option>
                       {people.map((person) => (
@@ -870,14 +904,14 @@ export default function AdminDashboard() {
               <button
                 type="button"
                 onClick={handleAddSeedRow}
-                className="text-santa-gold text-sm font-semibold hover:underline"
+                className="text-sm font-semibold text-accent-text hover:underline"
               >
                 + Add row
               </button>
 
               <button
                 type="submit"
-                className="w-full bg-white/10 text-santa-snow py-2 rounded-xl font-semibold hover:bg-white/20 transition border border-white/10"
+                className="w-full rounded-sm border border-border py-2 font-semibold text-ink transition-colors hover:bg-raised"
               >
                 Save last year&apos;s pairs
               </button>
@@ -885,40 +919,59 @@ export default function AdminDashboard() {
           </details>
 
           {/* People List */}
-          <div className="mt-8 bg-[#151528] p-6 rounded-2xl border border-white/10 card-glow">
-            <h2 className="text-2xl font-bold text-santa-snow mb-4">People ({people.length})</h2>
+          <div className="mt-8 rounded-md border border-border bg-surface p-6 shadow-elev-1">
+            <h2 className="mb-4 text-xl font-semibold text-ink-strong">People ({people.length})</h2>
             {people.length === 0 ? (
-              <p className="text-gray-400">No people added yet. Add your first person above!</p>
+              <p className="text-ink-muted">No people added yet. Add your first person above!</p>
             ) : (
               <>
               {/* Mobile card layout */}
               <div className="space-y-3 md:hidden">
                 {people.map((person) => (
-                  <div key={person.id} className="bg-santa-dark/50 border border-white/5 rounded-lg p-4">
-                    <div className="flex justify-between items-start mb-2">
-                      <span className="font-semibold text-santa-snow">{person.name}</span>
+                  <div key={person.id} className="rounded-md border border-border/60 bg-raised p-4">
+                    <div className="mb-2 flex items-start justify-between">
+                      <span className="font-semibold text-ink-strong">{person.name}</span>
                       <button
                         onClick={() => handleDeletePerson(person.id, person.name)}
-                        className="text-santa-red hover:text-santa-red-dark font-semibold text-sm min-h-[44px] min-w-[44px] flex items-center justify-center"
+                        className="flex min-h-[44px] min-w-[44px] items-center justify-center text-sm font-semibold text-danger hover:text-danger/80"
                       >
                         Delete
                       </button>
                     </div>
                     {person.email && (
-                      <p className="text-gray-400 text-sm truncate mb-1">{person.email}</p>
+                      <p className="mb-1 truncate text-sm text-ink-muted">{person.email}</p>
                     )}
-                    <div className="flex flex-wrap items-center gap-2 text-sm">
-                      <code className="bg-santa-dark border border-white/10 px-2 py-1 rounded font-mono text-santa-gold text-xs">
-                        /p/{person.personalLinkToken}
+                    <div className="mb-2 flex items-center gap-2">
+                      <code className="min-w-0 flex-1 truncate rounded-sm border border-border bg-surface px-2 py-1 font-mono text-xs text-ink-muted">
+                        {personalLink(person.personalLinkToken)}
                       </code>
-                      <span className="text-gray-400">{person._count.wishlistItems}/5 items</span>
+                      <button
+                        type="button"
+                        onClick={() => copyToClipboard(personalLink(person.personalLinkToken), person.personalLinkToken)}
+                        className="shrink-0 rounded-sm border border-border px-2 py-1 text-xs font-medium text-ink-muted transition-colors hover:bg-raised hover:text-ink"
+                      >
+                        {copiedKey === person.personalLinkToken ? "Copied" : "Copy"}
+                      </button>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2 text-sm">
+                      <span className="text-ink-muted">{person._count.wishlistItems}/5 items</span>
                       {person._count.wishlistItems > 0 ? (
-                        <span className="bg-santa-green/10 text-santa-green text-xs px-2 py-0.5 rounded-full font-semibold border border-santa-green/20">
+                        <span className="rounded-full border border-success/20 bg-success/10 px-2 py-0.5 text-xs font-semibold text-success">
                           Saved
                         </span>
                       ) : (
-                        <span className="bg-white/5 text-gray-500 text-xs px-2 py-0.5 rounded-full border border-white/10">
+                        <span className="rounded-full border border-border bg-raised px-2 py-0.5 text-xs text-ink-muted">
                           Not saved
+                        </span>
+                      )}
+                      <span className="text-ink-muted">{person._count.suggestionsBy} suggestions</span>
+                      {person._count.suggestionsBy > 0 ? (
+                        <span className="rounded-full border border-accent/20 bg-accent/10 px-2 py-0.5 text-xs font-semibold text-accent-text">
+                          Suggested
+                        </span>
+                      ) : (
+                        <span className="rounded-full border border-border bg-raised px-2 py-0.5 text-xs text-ink-muted">
+                          None
                         </span>
                       )}
                     </div>
@@ -927,56 +980,80 @@ export default function AdminDashboard() {
               </div>
 
               {/* Desktop table layout */}
-              <div className="hidden md:block overflow-x-auto">
+              <div className="hidden overflow-x-auto md:block">
                 <table className="w-full">
                   <thead>
-                    <tr className="border-b border-white/10">
-                      <th className="text-left py-3 px-4 text-santa-gold text-sm">Name</th>
-                      <th className="text-left py-3 px-4 text-santa-gold text-sm">Email</th>
-                      <th className="text-left py-3 px-4 text-santa-gold text-sm">Personal Link</th>
-                      <th className="text-left py-3 px-4 text-santa-gold text-sm">Wishlist</th>
-                      <th className="text-left py-3 px-4 text-santa-gold text-sm">Actions</th>
+                    <tr className="border-b border-border">
+                      <th className="px-4 py-3 text-left text-sm text-ink-muted">Name</th>
+                      <th className="px-4 py-3 text-left text-sm text-ink-muted">Email</th>
+                      <th className="px-4 py-3 text-left text-sm text-ink-muted">Personal Link</th>
+                      <th className="px-4 py-3 text-left text-sm text-ink-muted">Wishlist</th>
+                      <th className="px-4 py-3 text-left text-sm text-ink-muted">Suggestions</th>
+                      <th className="px-4 py-3 text-left text-sm text-ink-muted">Actions</th>
                     </tr>
                   </thead>
                   <tbody>
                     {people.map((person) => (
-                      <tr key={person.id} className="border-b border-white/5 hover:bg-white/5">
-                        <td className="py-3 px-4 text-santa-snow">{person.name}</td>
-                        <td className="py-3 px-4">
+                      <tr key={person.id} className="border-b border-border/60 hover:bg-raised">
+                        <td className="px-4 py-3 text-ink-strong">{person.name}</td>
+                        <td className="px-4 py-3">
                           {person.email ? (
                             <div className="flex items-center gap-2">
-                              <span className="text-gray-300 text-sm">{person.email}</span>
-                              <span className="bg-santa-gold/10 text-santa-gold text-xs px-2 py-1 rounded-full font-semibold border border-santa-gold/20">
+                              <span className="text-sm text-ink-muted">{person.email}</span>
+                              <span className="rounded-full border border-accent/20 bg-accent/10 px-2 py-1 text-xs font-semibold text-accent-text">
                                 Email link
                               </span>
                             </div>
                           ) : (
-                            <span className="text-gray-500 text-sm italic">No email</span>
+                            <span className="text-sm italic text-ink-muted">No email</span>
                           )}
                         </td>
-                        <td className="py-3 px-4">
-                          <code className="bg-santa-dark border border-white/10 px-2 py-1 rounded font-mono text-santa-gold text-sm">
-                            /p/{person.personalLinkToken}
-                          </code>
-                        </td>
-                        <td className="py-3 px-4">
+                        <td className="px-4 py-3">
                           <div className="flex items-center gap-2">
-                            <span className="text-santa-snow">{person._count.wishlistItems}/5</span>
+                            <code className="max-w-[20rem] truncate rounded-sm border border-border bg-raised px-2 py-1 font-mono text-sm text-ink-muted">
+                              {personalLink(person.personalLinkToken)}
+                            </code>
+                            <button
+                              type="button"
+                              onClick={() => copyToClipboard(personalLink(person.personalLinkToken), person.personalLinkToken)}
+                              className="shrink-0 rounded-sm border border-border px-2 py-1 text-xs font-medium text-ink-muted transition-colors hover:bg-raised hover:text-ink"
+                            >
+                              {copiedKey === person.personalLinkToken ? "Copied" : "Copy"}
+                            </button>
+                          </div>
+                        </td>
+                        <td className="px-4 py-3">
+                          <div className="flex items-center gap-2">
+                            <span className="text-ink-strong">{person._count.wishlistItems}/5</span>
                             {person._count.wishlistItems > 0 ? (
-                              <span className="bg-santa-green/10 text-santa-green text-xs px-2 py-1 rounded-full font-semibold border border-santa-green/20">
+                              <span className="rounded-full border border-success/20 bg-success/10 px-2 py-1 text-xs font-semibold text-success">
                                 Saved
                               </span>
                             ) : (
-                              <span className="bg-white/5 text-gray-500 text-xs px-2 py-1 rounded-full border border-white/10">
+                              <span className="rounded-full border border-border bg-raised px-2 py-1 text-xs text-ink-muted">
                                 Not saved
                               </span>
                             )}
                           </div>
                         </td>
-                        <td className="py-3 px-4">
+                        <td className="px-4 py-3">
+                          <div className="flex items-center gap-2">
+                            <span className="text-ink-strong">{person._count.suggestionsBy}</span>
+                            {person._count.suggestionsBy > 0 ? (
+                              <span className="rounded-full border border-accent/20 bg-accent/10 px-2 py-1 text-xs font-semibold text-accent-text">
+                                Suggested
+                              </span>
+                            ) : (
+                              <span className="rounded-full border border-border bg-raised px-2 py-1 text-xs text-ink-muted">
+                                None
+                              </span>
+                            )}
+                          </div>
+                        </td>
+                        <td className="px-4 py-3">
                           <button
                             onClick={() => handleDeletePerson(person.id, person.name)}
-                            className="text-santa-red hover:text-santa-red-dark font-semibold text-sm"
+                            className="text-sm font-semibold text-danger hover:text-danger/80"
                           >
                             Delete
                           </button>
@@ -992,40 +1069,40 @@ export default function AdminDashboard() {
 
           {/* Assignments List */}
           {assignments.length > 0 && (
-            <div className="mt-8 bg-[#151528] p-6 rounded-2xl border border-white/10 card-glow">
-              <h2 className="text-2xl font-bold text-santa-snow mb-4">
+            <div className="mt-8 rounded-md border border-border bg-surface p-6 shadow-elev-1">
+              <h2 className="mb-4 text-xl font-semibold text-ink-strong">
                 Assignments ({assignments.length})
               </h2>
               {/* Mobile card layout */}
               <div className="space-y-2 md:hidden">
                 {assignments.map((assignment) => (
-                  <div key={assignment.id} className="bg-santa-dark/50 border border-white/5 rounded-lg p-3 flex justify-between items-center">
+                  <div key={assignment.id} className="flex items-center justify-between rounded-md border border-border/60 bg-raised p-3">
                     <div className="text-sm">
-                      <span className="text-santa-snow">{assignment.giver.name}</span>
-                      <span className="text-gray-500 mx-2">&rarr;</span>
-                      <span className="text-santa-snow">{assignment.receiver.name}</span>
+                      <span className="text-ink-strong">{assignment.giver.name}</span>
+                      <span className="mx-2 text-ink-muted">&rarr;</span>
+                      <span className="text-ink-strong">{assignment.receiver.name}</span>
                     </div>
-                    <span className="text-gray-400 text-xs">{assignment.receiver.wishlistItems.length} items</span>
+                    <span className="text-xs text-ink-muted">{assignment.receiver.wishlistItems.length} items</span>
                   </div>
                 ))}
               </div>
 
               {/* Desktop table layout */}
-              <div className="hidden md:block overflow-x-auto">
+              <div className="hidden overflow-x-auto md:block">
                 <table className="w-full">
                   <thead>
-                    <tr className="border-b border-white/10">
-                      <th className="text-left py-3 px-4 text-santa-gold text-sm">Giver</th>
-                      <th className="text-left py-3 px-4 text-santa-gold text-sm">Receiver</th>
-                      <th className="text-left py-3 px-4 text-santa-gold text-sm">Wishlist Status</th>
+                    <tr className="border-b border-border">
+                      <th className="px-4 py-3 text-left text-sm text-ink-muted">Giver</th>
+                      <th className="px-4 py-3 text-left text-sm text-ink-muted">Receiver</th>
+                      <th className="px-4 py-3 text-left text-sm text-ink-muted">Wishlist Status</th>
                     </tr>
                   </thead>
                   <tbody>
                     {assignments.map((assignment) => (
-                      <tr key={assignment.id} className="border-b border-white/5 hover:bg-white/5">
-                        <td className="py-3 px-4 text-santa-snow">{assignment.giver.name}</td>
-                        <td className="py-3 px-4 text-santa-snow">{assignment.receiver.name}</td>
-                        <td className="py-3 px-4 text-gray-400">
+                      <tr key={assignment.id} className="border-b border-border/60 hover:bg-raised">
+                        <td className="px-4 py-3 text-ink-strong">{assignment.giver.name}</td>
+                        <td className="px-4 py-3 text-ink-strong">{assignment.receiver.name}</td>
+                        <td className="px-4 py-3 text-ink-muted">
                           {assignment.receiver.wishlistItems.length} items
                         </td>
                       </tr>

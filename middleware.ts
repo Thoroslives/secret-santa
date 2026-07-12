@@ -41,7 +41,6 @@ export async function middleware(request: NextRequest) {
   // Skip auth for public routes and auth endpoints
   if (
     pathname.startsWith("/api/auth/") ||
-    pathname.startsWith("/api/groups/verify") ||
     pathname.startsWith("/api/admin/auth") ||
     pathname.startsWith("/api/admin/oidc/login") ||
     pathname.startsWith("/api/admin/oidc/callback")
@@ -79,9 +78,8 @@ export async function middleware(request: NextRequest) {
   }
 
   // Group creation and the admin group list are admin-only (no public
-  // sign-up - P4-A4). Matched exactly, NOT as a prefix: GET /api/groups/[id]
-  // (participant reads their own group) and POST /api/groups/verify
-  // (invite-code lookup) must stay open to participants.
+  // sign-up - P4-A4). Matched exactly, NOT as a prefix, so GET /api/groups/[id]
+  // (a participant reading their own group) stays open to participants.
   if (
     (pathname.startsWith("/api/groups/create") && method === "POST") ||
     (pathname === "/api/groups" && method === "GET")

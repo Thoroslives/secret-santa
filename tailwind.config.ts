@@ -1,45 +1,73 @@
 import type { Config } from "tailwindcss";
 
+/**
+ * Warm-hearth design system. One committed theme: deep warm-charcoal base,
+ * pine-green primary (the action colour), gold accent (glow / focus / marks).
+ * OKLCH throughout, with <alpha-value> so opacity utilities (bg-primary/10) work.
+ * See DESIGN.md for the rationale and contrast rules.
+ */
 const config: Config = {
-  content: [
-    "./pages/**/*.{js,ts,jsx,tsx,mdx}",
-    "./components/**/*.{js,ts,jsx,tsx,mdx}",
-    "./app/**/*.{js,ts,jsx,tsx,mdx}",
-  ],
-  darkMode: 'class',
+  content: ["./app/**/*.{js,ts,jsx,tsx,mdx}", "./lib/**/*.{js,ts,jsx,tsx,mdx}"],
   theme: {
     extend: {
       colors: {
-        background: "var(--background)",
-        foreground: "var(--foreground)",
-        santa: {
-          red: '#DC2626',
-          'red-dark': '#991B1B',
-          green: '#059669',
-          'green-dark': '#065F46',
-          gold: '#D4A843',
-          'gold-dark': '#B8922E',
-          snow: '#F8FAFC',
-          dark: '#1A1A2E',
+        base: "oklch(0.170 0.014 55 / <alpha-value>)",
+        surface: "oklch(0.215 0.016 55 / <alpha-value>)",
+        raised: "oklch(0.255 0.018 55 / <alpha-value>)",
+        border: {
+          DEFAULT: "oklch(0.320 0.016 55 / <alpha-value>)",
+          strong: "oklch(0.400 0.018 55 / <alpha-value>)",
         },
+        ink: {
+          DEFAULT: "oklch(0.940 0.012 85 / <alpha-value>)",
+          strong: "oklch(0.975 0.008 85 / <alpha-value>)",
+          muted: "oklch(0.720 0.014 78 / <alpha-value>)",
+        },
+        primary: {
+          DEFAULT: "oklch(0.560 0.105 150 / <alpha-value>)",
+          hover: "oklch(0.610 0.110 150 / <alpha-value>)",
+          press: "oklch(0.500 0.100 150 / <alpha-value>)",
+          on: "oklch(0.985 0.010 150 / <alpha-value>)",
+        },
+        accent: {
+          DEFAULT: "oklch(0.800 0.120 82 / <alpha-value>)",
+          text: "oklch(0.850 0.130 84 / <alpha-value>)",
+          dim: "oklch(0.680 0.100 82 / <alpha-value>)",
+        },
+        success: "oklch(0.700 0.130 150 / <alpha-value>)",
+        danger: {
+          DEFAULT: "oklch(0.620 0.150 32 / <alpha-value>)",
+          on: "oklch(0.985 0.010 32 / <alpha-value>)",
+        },
+        warning: "oklch(0.780 0.130 68 / <alpha-value>)",
       },
       fontFamily: {
-        display: ['Georgia', 'Times New Roman', 'serif'],
+        sans: ["var(--font-sans)", "system-ui", "sans-serif"],
+        display: ["var(--font-display)", "Georgia", "serif"],
       },
-      animation: {
-        'snow-fall': 'snowfall 10s linear infinite',
-        'twinkle': 'twinkle 2s ease-in-out infinite',
-        'bounce-slow': 'bounce 3s infinite',
+      borderRadius: {
+        sm: "8px",
+        md: "12px",
+        lg: "16px",
+        xl: "24px",
+      },
+      boxShadow: {
+        "elev-1": "0 1px 2px rgb(0 0 0 / 0.4)",
+        "elev-2": "0 8px 24px -8px rgb(0 0 0 / 0.5)",
       },
       keyframes: {
-        snowfall: {
-          '0%': { transform: 'translateY(-10vh) translateX(0)', opacity: '1' },
-          '100%': { transform: 'translateY(100vh) translateX(20px)', opacity: '0.3' },
+        "rise-in": {
+          "0%": { opacity: "0", transform: "translateY(12px)" },
+          "100%": { opacity: "1", transform: "translateY(0)" },
         },
-        twinkle: {
-          '0%, 100%': { opacity: '1' },
-          '50%': { opacity: '0.5' },
+        bloom: {
+          "0%": { opacity: "0", transform: "scale(0.96)" },
+          "100%": { opacity: "1", transform: "scale(1)" },
         },
+      },
+      animation: {
+        "rise-in": "rise-in 0.6s cubic-bezier(0.16, 1, 0.3, 1) both",
+        bloom: "bloom 0.7s cubic-bezier(0.16, 1, 0.3, 1) both",
       },
     },
   },

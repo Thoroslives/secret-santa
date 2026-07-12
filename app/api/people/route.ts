@@ -29,7 +29,7 @@ export async function GET(request: NextRequest) {
           orderBy: { order: "asc" },
         },
         _count: {
-          select: { wishlistItems: true },
+          select: { wishlistItems: true, suggestionsBy: true },
         },
       },
       orderBy: { createdAt: "desc" },

@@ -1,12 +1,12 @@
-# Secret Santa - Multi-Tenant Gift Exchange Platform
+# Secret Santa - Self-Hosted Gift Exchange
 
-A free, self-hosted web application for managing Secret Santa gift exchanges. Perfect for families, friend groups, and communities worldwide. Features multi-tenancy, durable personal login links, wishlist management, and automated Secret Santa partner assignments.
+A private, self-hosted web app for running Secret Santa gift exchanges for one or more family or friend groups. Durable personal login links, wishlist management, and a constrained draw engine, all in a single container.
 
 ## Features
 
-- **Multi-Tenant**: Unlimited groups can use the same installation
+- **Multiple Groups**: one super-admin runs several family or friend groups from a single install
 - **Group Creation**: Admin-only - a single super-admin creates and manages every group (no public sign-up)
-- **Invite Codes**: Share a 6-character code to invite people to your group
+- **No Public Sign-Up**: the organiser adds people directly and shares their durable link; there is no invite-code flow
 - **Admin Portal**: Manage participants, send personal login links, and create Secret Santa assignments
 - **User Login**: Durable personal link (`/p/<token>`) with self-service email resend - no user accounts needed
 - **Wishlist Management**: Each person can add 1-5 gift items with links
@@ -20,7 +20,7 @@ A free, self-hosted web application for managing Secret Santa gift exchanges. Pe
 - **Database**: SQLite (single file) with Prisma ORM
 - **Styling**: Tailwind CSS
 - **Authentication**: Durable personal link for participants; single super-admin (OIDC + break-glass) for admin
-- **Deployment**: Docker & Docker Compose
+- **Deployment**: Docker (single container with a mounted SQLite volume)
 
 ## Getting Started
 
@@ -31,19 +31,19 @@ A free, self-hosted web application for managing Secret Santa gift exchanges. Pe
 - SQLite (bundled, no external DB server) OR Docker
 
 **For Production (Easiest):**
-- Docker and Docker Compose
+- Docker
 - That's it!
 
-### Quick Start with Docker (Recommended)
+### Quick Start with Docker
 
 ```bash
-# 1. Start everything
-docker-compose up -d
+# Build and start the single app container (SQLite volume, host port 3001)
+SESSION_SECRET=$(openssl rand -base64 32) docker compose up -d --build
 
-# 2. Access at http://localhost:3000
+# Access at http://localhost:3001
 ```
 
-That's it! See [DEPLOYMENT.md](DEPLOYMENT.md) for production deployment.
+The bundled `docker-compose.yml` is a minimal single-service starter (SQLite volume, `SESSION_SECRET` only). For a real deployment - admin auth, HTTPS, backups - see [DEPLOYMENT.md](DEPLOYMENT.md).
 
 ### Development Setup
 
@@ -213,7 +213,7 @@ Node.js installed (e.g. bare-metal or a VM), without Docker.
 - Break-glass admin password is checked with a constant-time comparison against `ADMIN_BREAKGLASS_PASSWORD` (env var only, no DB storage)
 - Personal link tokens are randomly generated and unique
 - No sensitive data is exposed to users
-- Session data stored in browser sessionStorage (cleared on logout)
+- Sessions live in a signed, encrypted, httpOnly iron-session cookie (not readable by JavaScript); no session data is kept in browser storage
 
 ## Troubleshooting
 

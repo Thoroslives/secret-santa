@@ -6,194 +6,86 @@ test.describe("Home Page", () => {
     await expect(page).toHaveTitle(/Secret Santa/);
   });
 
-  test('has a "Join Existing Group" link', async ({ page }) => {
+  test("shows the participant email sign-in form", async ({ page }) => {
     await page.goto("/");
-    const joinLink = page.getByRole("link", { name: /Join Existing Group/i });
-    await expect(joinLink).toBeVisible();
-  });
-
-  test("has a Participant Login link", async ({ page }) => {
-    await page.goto("/");
+    await expect(page.getByLabel(/Your email/i)).toBeVisible();
     await expect(
-      page.getByRole("link", { name: /Participant Login/i }).first()
+      page.getByRole("button", { name: /Email me my link/i })
     ).toBeVisible();
   });
 
-  test("navigation links work", async ({ page }) => {
+  test("has an organiser sign-in link to /admin", async ({ page }) => {
     await page.goto("/");
-
-    // Click Join Existing Group link
-    await page
-      .getByRole("link", { name: /Join Existing Group/i })
-      .first()
-      .click();
-    await expect(page).toHaveURL(/\/join/);
-  });
-
-  test('has an FAQ section', async ({ page }) => {
-    await page.goto("/");
-    await expect(
-      page.getByRole("heading", { name: /Frequently Asked Questions/i })
-    ).toBeVisible();
-  });
-
-  test("has footer", async ({ page }) => {
-    await page.goto("/");
-    await expect(page.locator("footer")).toBeVisible();
+    const organiser = page.getByRole("link", { name: /Organiser sign-in/i });
+    await expect(organiser).toBeVisible();
+    await organiser.click();
+    await expect(page).toHaveURL(/\/admin/);
   });
 });
 
-// Note: the public "Create Group Flow" describe block that used to live here
-// was removed with app/create/page.tsx (P4 followups, loose end 2b) - group
-// creation is admin-only via the dashboard now (B4), already covered by the
-// POST /api/groups/create tests in __tests__/api/routes.test.ts and by the
-// "Full Flow" admin-login-to-dashboard test below.
+// The public "Join Existing Group" invite-code flow (app/join + /api/groups/verify)
+// was removed in P5.6: participants no longer self-join with a code - the organiser
+// adds them and shares their durable /p/<token> link, and self-service sign-in is
+// email-only (see the Participant Sign-In block below). The public "Create Group"
+// page was already removed in the P4 follow-ups (group creation is admin-only via
+// the dashboard, covered by the POST /api/groups/create tests + the Full Flow below).
 
-test.describe("Join Group Flow", () => {
-  test("shows join group form", async ({ page }) => {
-    await page.goto("/join");
+test.describe("Participant Sign-In (/login, email link)", () => {
+  test("shows the email sign-in form", async ({ page }) => {
+    await page.goto("/login");
     await expect(
-      page.getByRole("heading", { name: /Join a Secret Santa Group/i })
+      page.getByRole("heading", { name: /Welcome back/i })
     ).toBeVisible();
-    await expect(page.getByLabel(/Group Invite Code/i)).toBeVisible();
+    await expect(page.getByLabel(/Your email/i)).toBeVisible();
     await expect(
-      page.getByRole("button", { name: /Continue/i })
+      page.getByRole("button", { name: /Email me my link/i })
     ).toBeVisible();
   });
 
-  test("handles 6-character invite code input", async ({ page }) => {
-    await page.goto("/join");
-    const codeInput = page.getByLabel(/Group Invite Code/i);
-    await codeInput.fill("ABCDEF");
-    await expect(codeInput).toHaveValue("ABCDEF");
+  test("shows the invalid-link banner on ?error=invalid-link", async ({
+    page,
+  }) => {
+    await page.goto("/login?error=invalid-link");
+    // Assert the banner's own copy rather than role=alert - next dev injects its
+    // own role=alert overlay container, so the role match is ambiguous in dev.
+    await expect(page.getByText(/didn.t work anymore/i)).toBeVisible();
   });
 
-  test("converts invite code to uppercase", async ({ page }) => {
-    await page.goto("/join");
-    const codeInput = page.getByLabel(/Group Invite Code/i);
-    await codeInput.fill("abcdef");
-    await expect(codeInput).toHaveValue("ABCDEF");
+  test("does not show the banner without the error param", async ({ page }) => {
+    await page.goto("/login");
+    await expect(page.getByText(/didn.t work anymore/i)).toHaveCount(0);
   });
 
-  test("shows error for invalid invite code", async ({ page }) => {
-    await page.goto("/join");
-
-    // Mock the API to return an error
-    await page.route("**/api/groups/verify", async (route) => {
-      await route.fulfill({
-        status: 404,
-        contentType: "application/json",
-        body: JSON.stringify({ error: "Invalid invite code" }),
-      });
-    });
-
-    await page.getByLabel(/Group Invite Code/i).fill("XXXXXX");
-    await page.getByRole("button", { name: /Continue/i }).click();
-    await expect(page.getByText(/Invalid invite code/i)).toBeVisible();
-  });
-
-  test("shows group info after valid code", async ({ page }) => {
-    await page.goto("/join");
-
-    // Mock the API to return group info
-    await page.route("**/api/groups/verify", async (route) => {
+  test("sends the link and shows confirmation (email-only, no groupId)", async ({
+    page,
+  }) => {
+    // Binding constraint: the form posts {email} only - no groupId (the /join
+    // flow that used to supply one is gone).
+    await page.route("**/api/auth/email-link", async (route) => {
+      const request = route.request();
+      expect(request.method()).toBe("POST");
+      expect(request.postDataJSON()).toEqual({ email: "test@example.com" });
       await route.fulfill({
         status: 200,
         contentType: "application/json",
         body: JSON.stringify({
-          group: { id: "test-id", name: "Test Family", year: 2026 },
+          message: "If this email is registered, a login link has been sent.",
         }),
       });
     });
 
-    await page.getByLabel(/Group Invite Code/i).fill("ABC123");
-    await page.getByRole("button", { name: /Continue/i }).click();
+    await page.goto("/login");
+    await page.getByLabel(/Your email/i).fill("test@example.com");
+    await page.getByRole("button", { name: /Email me my link/i }).click();
 
-    await expect(page.getByText(/Group Found!/i)).toBeVisible();
-    await expect(page.getByText("Test Family")).toBeVisible();
-    await expect(
-      page.getByRole("button", { name: /Admin Portal/i })
-    ).toBeVisible();
-    await expect(
-      page.getByRole("button", { name: /Participant Login/i })
-    ).toBeVisible();
-  });
-
-  test("continue button is disabled when code is incomplete", async ({
-    page,
-  }) => {
-    await page.goto("/join");
-    const continueBtn = page.getByRole("button", { name: /Continue/i });
-    // Button should be disabled when code is less than 6 chars
-    await expect(continueBtn).toBeDisabled();
-    await page.getByLabel(/Group Invite Code/i).fill("ABC");
-    await expect(continueBtn).toBeDisabled();
+    await expect(page.getByText(/Check your email/i)).toBeVisible();
   });
 
   test("has back to home link", async ({ page }) => {
-    await page.goto("/join");
-    await expect(page.getByRole("link", { name: /Back to Home/i })).toBeVisible();
-  });
-});
-
-test.describe("Login Page (participant, email link)", () => {
-  test("redirects to home if no groupId in sessionStorage", async ({
-    page,
-  }) => {
     await page.goto("/login");
-    // Should redirect to home since no groupId is set
-    await expect(page).toHaveURL("/");
-  });
-
-  test("shows email login form when groupId is set", async ({ page }) => {
-    // Set sessionStorage before navigating
-    await page.goto("/");
-    await page.evaluate(() => {
-      sessionStorage.setItem("groupId", "test-group-id");
-      sessionStorage.setItem("groupName", "Test Family");
-    });
-    await page.goto("/login");
-
     await expect(
-      page.getByRole("heading", { name: /Welcome!/i })
+      page.getByRole("link", { name: /Back to home/i })
     ).toBeVisible();
-    await expect(page.getByText("Test Family")).toBeVisible();
-    await expect(page.getByLabel(/Email Address/i)).toBeVisible();
-    await expect(
-      page.getByRole("button", { name: /Send Login Link/i })
-    ).toBeVisible();
-  });
-
-  test("sends login link and shows confirmation", async ({ page }) => {
-    await page.goto("/");
-    await page.evaluate(() => {
-      sessionStorage.setItem("groupId", "test-group-id");
-      sessionStorage.setItem("groupName", "Test Family");
-    });
-    await page.goto("/login");
-
-    await page.route("**/api/auth/email-link", async (route) => {
-      await route.fulfill({
-        status: 200,
-        contentType: "application/json",
-        body: JSON.stringify({ success: true }),
-      });
-    });
-
-    await page.getByLabel(/Email Address/i).fill("test@example.com");
-    await page.getByRole("button", { name: /Send Login Link/i }).click();
-
-    await expect(page.getByText(/Check your email!/i)).toBeVisible();
-  });
-
-  test("has back to home link", async ({ page }) => {
-    await page.goto("/");
-    await page.evaluate(() => {
-      sessionStorage.setItem("groupId", "test-group-id");
-      sessionStorage.setItem("groupName", "Test Family");
-    });
-    await page.goto("/login");
-    await expect(page.getByRole("link", { name: /Back to Home/i })).toBeVisible();
   });
 });
 
@@ -323,22 +215,6 @@ test.describe("Admin Portal Login", () => {
 });
 
 test.describe("Error Handling", () => {
-  test("join form shows error with invalid code", async ({ page }) => {
-    await page.goto("/join");
-
-    await page.route("**/api/groups/verify", async (route) => {
-      await route.fulfill({
-        status: 404,
-        contentType: "application/json",
-        body: JSON.stringify({ error: "Invalid invite code" }),
-      });
-    });
-
-    await page.getByLabel(/Group Invite Code/i).fill("ZZZZZZ");
-    await page.getByRole("button", { name: /Continue/i }).click();
-    await expect(page.getByText(/Invalid invite code/i)).toBeVisible();
-  });
-
   test("wishlist redirects when not logged in", async ({ page }) => {
     await page.goto("/wishlist");
     // The page checks /api/auth/session; with no session cookie it redirects home.
@@ -416,31 +292,5 @@ test.describe("Full Flow (with mocked API)", () => {
     await expect(
       page.getByRole("heading", { name: /Add Person/i })
     ).toBeVisible();
-  });
-
-  test("join group -> participant login flow", async ({ page }) => {
-    // Step 1: Join a group
-    await page.goto("/join");
-
-    await page.route("**/api/groups/verify", async (route) => {
-      await route.fulfill({
-        status: 200,
-        contentType: "application/json",
-        body: JSON.stringify({
-          group: { id: "join-test-group", name: "Join Test Family", year: 2026 },
-        }),
-      });
-    });
-
-    await page.getByLabel(/Group Invite Code/i).fill("JON123");
-    await page.getByRole("button", { name: /Continue/i }).click();
-    await expect(page.getByText(/Group Found!/i)).toBeVisible();
-
-    // Step 2: Choose participant login
-    await page.getByRole("button", { name: /Participant Login/i }).click();
-    await expect(page).toHaveURL(/\/login/);
-
-    // Login page should show the group name
-    await expect(page.getByText("Join Test Family")).toBeVisible();
   });
 });

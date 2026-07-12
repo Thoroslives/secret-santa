@@ -1,4 +1,4 @@
-import { sendLoginLinkEmail, testEmailConfig } from '@/lib/email';
+import { sendLoginLinkEmail, sendMatchReadyEmail, testEmailConfig } from '@/lib/email';
 
 // Mock nodemailer
 jest.mock('nodemailer', () => {
@@ -84,6 +84,67 @@ describe('sendLoginLinkEmail', () => {
     const sendMail = nodemailer.default.createTransport().sendMail;
     sendMail.mockRejectedValueOnce(new Error('SMTP error'));
     const result = await sendLoginLinkEmail('user@example.com', 'Alice', 'Family Group', 'https://example.com/p/tok_abc123');
+    expect(result).toBe(false);
+  });
+});
+
+describe('sendMatchReadyEmail', () => {
+  const link = 'https://example.com/p/tok_match99';
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    process.env.EMAIL_FROM = 'Santa <santa@test.com>';
+  });
+
+  afterEach(() => {
+    delete process.env.EMAIL_FROM;
+  });
+
+  it('sends to the correct recipient', async () => {
+    await sendMatchReadyEmail('user@example.com', 'Alice', 'Family Group', link);
+    const sendMail = nodemailer.default.createTransport().sendMail;
+    expect(sendMail).toHaveBeenCalledWith(expect.objectContaining({ to: 'user@example.com' }));
+  });
+
+  it('includes the durable link in the email body', async () => {
+    await sendMatchReadyEmail('user@example.com', 'Alice', 'Family Group', link);
+    const callArgs = nodemailer.default.createTransport().sendMail.mock.calls[0][0];
+    expect(callArgs.html).toContain(link);
+    expect(callArgs.text).toContain(link);
+  });
+
+  it('includes the group name in the subject', async () => {
+    await sendMatchReadyEmail('user@example.com', 'Alice', 'Family Group', link);
+    const callArgs = nodemailer.default.createTransport().sendMail.mock.calls[0][0];
+    expect(callArgs.subject).toContain('Family Group');
+  });
+
+  it('never names the drawee (the drawee is not even a parameter)', async () => {
+    // The recipient's own name may appear (greeting); no second identity can,
+    // because the function is never given one. 'Bob' stands in for a would-be drawee.
+    await sendMatchReadyEmail('user@example.com', 'Alice', 'Family Group', link);
+    const callArgs = nodemailer.default.createTransport().sendMail.mock.calls[0][0];
+    expect(callArgs.html).toContain('Alice');
+    expect(callArgs.html).not.toMatch(/\bBob\b/);
+    expect(callArgs.text).not.toMatch(/\bBob\b/);
+  });
+
+  it('does not mention an expiry (the link is durable)', async () => {
+    await sendMatchReadyEmail('user@example.com', 'Alice', 'Family Group', link);
+    const callArgs = nodemailer.default.createTransport().sendMail.mock.calls[0][0];
+    expect(callArgs.html).not.toMatch(/expire/i);
+    expect(callArgs.text).not.toMatch(/expire/i);
+  });
+
+  it('returns true on success', async () => {
+    const result = await sendMatchReadyEmail('user@example.com', 'Alice', 'Family Group', link);
+    expect(result).toBe(true);
+  });
+
+  it('returns false when sendMail throws', async () => {
+    const sendMail = nodemailer.default.createTransport().sendMail;
+    sendMail.mockRejectedValueOnce(new Error('SMTP error'));
+    const result = await sendMatchReadyEmail('user@example.com', 'Alice', 'Family Group', link);
     expect(result).toBe(false);
   });
 });

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 
 interface WishlistItem {
@@ -51,9 +51,9 @@ export default function Wishlist() {
   const [assignment, setAssignment] = useState<Assignment | null>(null);
   const [budget, setBudget] = useState<{ amount?: number; currency?: string } | null>(null);
   const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
+  const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
   const [error, setError] = useState("");
-  const [successMessage, setSuccessMessage] = useState("");
+  const dirtyRef = useRef(false);
   const [roster, setRoster] = useState<RosterPerson[]>([]);
   const [mySuggestions, setMySuggestions] = useState<MySuggestion[]>([]);
   const [matchSuggestions, setMatchSuggestions] = useState<MatchSuggestion[]>([]);
@@ -162,6 +162,7 @@ export default function Wishlist() {
   };
 
   const handleItemChange = (index: number, field: "title" | "note", value: string) => {
+    dirtyRef.current = true;
     const newItems = [...items];
     newItems[index] = { ...newItems[index], [field]: value };
     setItems(newItems);
@@ -175,63 +176,43 @@ export default function Wishlist() {
 
   const handleRemoveItem = (index: number) => {
     if (items.length > 1) {
-      const newItems = items.filter((_, i) => i !== index);
-      setItems(newItems);
+      dirtyRef.current = true;
+      setItems(items.filter((_, i) => i !== index));
     }
   };
 
-  const handleSaveWishlist = async () => {
-    setError("");
-    setSuccessMessage("");
-    setSaving(true);
+  // Autosave: persist the wishlist a short beat after the last edit, so there
+  // is no Save button to hunt for and no "did that save?" ambiguity. An empty
+  // list is a valid save (it clears the wishlist); items without a title are
+  // ignored until they are filled in.
+  const autosaveWishlist = async (current: WishlistItem[]) => {
+    if (!personId) return;
+    const validItems = current
+      .filter((item) => item.title.trim())
+      .map((item) => ({ title: item.title.trim(), note: item.note?.trim() || undefined }));
+    if (validItems.length > 5) return; // the UI already caps at 5
 
-    // Filter out empty items (title is required; note is optional)
-    const validItems = items.filter((item) => item.title.trim());
-
-    if (validItems.length < 1) {
-      setError("You must add at least 1 item to your wishlist");
-      setSaving(false);
-      return;
-    }
-
-    if (validItems.length > 5) {
-      setError("You can only have up to 5 items in your wishlist");
-      setSaving(false);
-      return;
-    }
-
+    setSaveStatus("saving");
     try {
       const res = await fetch("/api/wishlist", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          personId,
-          items: validItems,
-        }),
+        body: JSON.stringify({ personId, items: validItems }),
       });
-
-      const data = await res.json();
-
-      if (!res.ok) {
-        setError(data.error || "Failed to save wishlist");
-        setSaving(false);
-        return;
-      }
-
-      setSuccessMessage("Wishlist saved successfully!");
-      setSaving(false);
-
-      // Reload person data
-      if (groupId) {
-        loadPersonData(groupId);
-      }
-
-      setTimeout(() => setSuccessMessage(""), 3000);
-    } catch (err) {
-      setError("An error occurred while saving");
-      setSaving(false);
+      setSaveStatus(res.ok ? "saved" : "error");
+    } catch {
+      setSaveStatus("error");
     }
   };
+
+  // Debounced autosave on every edit. dirtyRef skips the load-time setItems so
+  // simply opening the page never fires a save.
+  useEffect(() => {
+    if (!dirtyRef.current) return;
+    const timer = setTimeout(() => autosaveWishlist(items), 700);
+    return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [items]);
 
   const suggestionCountForSelected = suggestForPersonId
     ? mySuggestions.filter((s) => s.forPersonId === suggestForPersonId).length
@@ -314,61 +295,57 @@ export default function Wishlist() {
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-santa-dark">
-        <div className="text-xl text-santa-gold">Loading...</div>
+      <div className="flex min-h-screen items-center justify-center bg-base">
+        <div className="text-xl text-ink-muted">Loading...</div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-santa-dark p-4 md:p-8">
-      <div className="max-w-6xl mx-auto">
-        <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4 mb-8">
+    <div className="min-h-screen bg-base p-4 md:p-8">
+      <div className="mx-auto max-w-6xl">
+        <div className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div className="min-w-0">
-            <h1 className="text-2xl sm:text-4xl font-bold text-santa-gold font-display truncate">Welcome, {personName}!</h1>
-            {groupName && <p className="text-gray-300 mt-1 text-sm sm:text-base truncate">{groupName}</p>}
-            <p className="text-gray-400 mt-1 text-sm">Manage your wishlist and Secret Santa assignment</p>
+            <h1 className="truncate font-display text-2xl font-medium tracking-[-0.02em] text-ink-strong sm:text-4xl">
+              Welcome, {personName}!
+            </h1>
+          </div>
+          <div className="flex items-center gap-3 self-start sm:self-auto">
             {budget && (
-              <div className="mt-2 inline-flex items-center bg-santa-gold/10 border border-santa-gold/30 text-santa-gold px-3 py-1 rounded-lg text-sm font-medium">
-                💰 Budget: {budget.currency} {budget.amount}
+              <div className="inline-flex items-center rounded-full border border-accent/30 bg-accent/10 px-3 py-1 text-sm font-medium text-accent-text">
+                Budget: {budget.currency} {budget.amount}
               </div>
             )}
+            <button
+              onClick={handleLogout}
+              className="min-h-[44px] rounded-sm border border-border px-4 py-2 text-ink-muted transition-colors hover:bg-raised hover:text-ink"
+            >
+              Logout
+            </button>
           </div>
-          <button
-            onClick={handleLogout}
-            className="self-start sm:self-auto bg-white/10 text-santa-snow px-4 py-2 rounded-lg hover:bg-white/20 transition border border-white/10 min-h-[44px]"
-          >
-            Logout
-          </button>
         </div>
 
         {error && (
-          <div className="bg-santa-red/10 border border-santa-red/30 text-santa-red px-4 py-3 rounded-lg mb-4">
+          <div className="mb-4 rounded-md border border-danger/30 bg-danger/10 px-4 py-3 text-danger">
             {error}
           </div>
         )}
 
-        {successMessage && (
-          <div className="bg-santa-green/10 border border-santa-green/30 text-santa-green px-4 py-3 rounded-lg mb-4">
-            {successMessage}
-          </div>
-        )}
-
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+        <div className="grid grid-cols-1 gap-8 lg:grid-cols-2">
           {/* My Wishlist */}
-          <div className="bg-[#151528] p-6 rounded-2xl border border-white/10 card-glow">
-            <h2 className="text-2xl font-bold text-santa-snow mb-4">My Wishlist</h2>
-            <p className="text-sm text-gray-400 mb-4">Add 1-5 items you&apos;d like to receive</p>
+          <div className="order-2 rounded-md border border-border bg-surface p-6 shadow-elev-1 lg:order-1">
+            <h2 className="mb-4 text-xl font-semibold text-ink-strong">My Wishlist</h2>
+            <p className="mb-4 text-sm text-ink-muted">Add up to 5 items you&apos;d like to receive. They save automatically.</p>
 
             <div className="space-y-4">
               {items.map((item, index) => (
-                <div key={index} className="border border-white/10 p-4 rounded-lg bg-santa-dark/50">
-                  <div className="flex justify-between items-center mb-2">
-                    <span className="text-sm font-medium text-santa-gold">Item {index + 1}</span>
+                <div key={index} className="rounded-md border border-border bg-raised p-4">
+                  <div className="mb-2 flex items-center justify-between">
+                    <span className="text-sm font-medium text-accent-text">Item {index + 1}</span>
                     {items.length > 1 && (
                       <button
                         onClick={() => handleRemoveItem(index)}
-                        className="text-santa-red text-sm hover:text-santa-red-dark"
+                        className="text-sm text-danger hover:text-danger/80"
                       >
                         Remove
                       </button>
@@ -381,14 +358,14 @@ export default function Wishlist() {
                       value={item.title}
                       onChange={(e) => handleItemChange(index, "title", e.target.value)}
                       placeholder="Item name"
-                      className="w-full px-3 py-2 bg-santa-dark border border-white/10 rounded focus:ring-2 focus:ring-santa-gold focus:border-transparent text-santa-snow placeholder-gray-500"
+                      className="w-full rounded-sm border border-border bg-surface px-3 py-2 text-ink placeholder-ink-muted focus:border-transparent focus:ring-2 focus:ring-accent"
                     />
                     <input
                       type="text"
                       value={item.note ?? ""}
                       onChange={(e) => handleItemChange(index, "note", e.target.value)}
                       placeholder="Note (a description or a link)"
-                      className="w-full px-3 py-2 bg-santa-dark border border-white/10 rounded focus:ring-2 focus:ring-santa-gold focus:border-transparent text-santa-snow placeholder-gray-500"
+                      className="w-full rounded-sm border border-border bg-surface px-3 py-2 text-ink placeholder-ink-muted focus:border-transparent focus:ring-2 focus:ring-accent"
                     />
                   </div>
                 </div>
@@ -397,80 +374,95 @@ export default function Wishlist() {
               {items.length < 5 && (
                 <button
                   onClick={handleAddItem}
-                  className="w-full py-2 border-2 border-dashed border-white/10 rounded-lg text-gray-400 hover:border-santa-gold hover:text-santa-gold transition"
+                  className="w-full rounded-md border-2 border-dashed border-border py-2 text-ink-muted transition-colors hover:border-accent-dim hover:text-accent-text"
                 >
                   + Add Item
                 </button>
               )}
 
-              <button
-                onClick={handleSaveWishlist}
-                disabled={saving}
-                className="w-full bg-santa-green text-white py-3 rounded-xl font-semibold hover:bg-santa-green-dark transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed hover:scale-105 transform"
-              >
-                {saving ? "Saving..." : "Save Wishlist"}
-              </button>
+              <div className="pt-1 text-sm text-ink-muted" role="status" aria-live="polite">
+                {saveStatus === "saving" && "Saving..."}
+                {saveStatus === "saved" && <span className="text-success">All changes saved</span>}
+                {saveStatus === "error" && (
+                  <span className="text-danger">
+                    Couldn&apos;t save.{" "}
+                    <button
+                      onClick={() => autosaveWishlist(items)}
+                      className="font-medium underline hover:no-underline"
+                    >
+                      Retry
+                    </button>
+                  </span>
+                )}
+                {saveStatus === "idle" && "Your list saves automatically as you type."}
+              </div>
             </div>
           </div>
 
           {/* Secret Santa Assignment */}
-          <div className="bg-[#151528] p-6 rounded-2xl border border-white/10 card-glow">
-            <h2 className="text-2xl font-bold text-santa-snow mb-4">Your Secret Santa</h2>
+          <div className="order-1 rounded-md border border-border bg-surface p-6 shadow-elev-1 lg:order-2">
+            <h2 className="mb-4 text-xl font-semibold text-ink-strong">Your Secret Santa</h2>
 
             {assignment ? (
               <div>
-                <p className="text-lg mb-4 text-santa-snow">
-                  You are Secret Santa for:{" "}
-                  <span className="font-bold text-santa-red">{assignment.receiver.name}</span>
-                </p>
+                <div className="match-reveal py-2">
+                  <p className="mb-2 text-xs font-semibold uppercase tracking-[0.2em] text-ink-muted">
+                    You are Secret Santa for
+                  </p>
+                  <p className="font-display text-5xl leading-[1.05] tracking-[-0.02em] text-ink-strong sm:text-6xl">
+                    <span className="match-reveal-name text-accent-text">
+                      {assignment.receiver.name}
+                    </span>
+                  </p>
+                </div>
 
-                <div className="bg-santa-red/10 border border-santa-red/20 p-4 rounded-lg">
-                  <h3 className="font-semibold text-santa-snow mb-3">
+                <div className="rounded-md border border-border bg-raised p-4">
+                  <h3 className="mb-3 font-semibold text-ink-strong">
                     {assignment.receiver.name}&apos;s Wishlist:
                   </h3>
 
                   {assignment.receiver.wishlistItems.length > 0 ? (
                     <ul className="space-y-3">
                       {assignment.receiver.wishlistItems.map((item, index) => (
-                        <li key={index} className="border-b border-white/5 pb-2 last:border-0">
-                          <div className="font-medium text-santa-snow">{item.title}</div>
+                        <li key={index} className="border-b border-border/60 pb-2 last:border-0">
+                          <div className="font-medium text-ink-strong">{item.title}</div>
                           {item.note && (
                             isLinkNote(item.note) ? (
                               <a
                                 href={item.note}
                                 target="_blank"
                                 rel="noopener noreferrer"
-                                className="text-sm text-santa-gold hover:underline break-all"
+                                className="break-all text-sm text-accent-text hover:underline"
                               >
                                 {item.note}
                               </a>
                             ) : (
-                              <p className="text-sm text-gray-300 break-words">{item.note}</p>
+                              <p className="break-words text-sm text-ink-muted">{item.note}</p>
                             )
                           )}
                         </li>
                       ))}
                     </ul>
                   ) : (
-                    <p className="text-gray-400 italic">
+                    <p className="italic text-ink-muted">
                       {assignment.receiver.name} hasn&apos;t added their wishlist yet. Check back later!
                     </p>
                   )}
                 </div>
 
                 {matchSuggestions.length > 0 && (
-                  <div className="bg-santa-gold/10 border border-santa-gold/20 p-4 rounded-lg mt-4">
-                    <h3 className="font-semibold text-santa-snow mb-3">
+                  <div className="mt-4 rounded-md border border-accent/20 bg-accent/10 p-4">
+                    <h3 className="mb-3 font-semibold text-ink-strong">
                       Gift ideas others suggested for {assignment.receiver.name}:
                     </h3>
                     <ul className="space-y-3">
                       {matchSuggestions.map((s) => (
-                        <li key={s.id} className="border-b border-white/5 pb-2 last:border-0">
-                          <div className="font-medium text-santa-snow">{s.name}</div>
+                        <li key={s.id} className="border-b border-border/60 pb-2 last:border-0">
+                          <div className="font-medium text-ink-strong">{s.name}</div>
                           {s.note && (
-                            <p className="text-sm text-gray-300 break-words">{s.note}</p>
+                            <p className="break-words text-sm text-ink-muted">{s.note}</p>
                           )}
-                          <p className="text-xs text-gray-400 mt-1">From: {s.from}</p>
+                          <p className="mt-1 text-xs text-ink-muted">From: {s.from}</p>
                         </li>
                       ))}
                     </ul>
@@ -478,12 +470,12 @@ export default function Wishlist() {
                 )}
               </div>
             ) : (
-              <div className="text-center py-8">
-                <div className="text-6xl mb-4">🎁</div>
-                <p className="text-santa-snow">
+              <div className="py-8 text-center">
+                <div className="mx-auto mb-4 h-px w-10 bg-accent-dim" />
+                <p className="text-ink-strong">
                   Secret Santa assignments haven&apos;t been generated yet.
                 </p>
-                <p className="text-sm text-gray-400 mt-2">
+                <p className="mt-2 text-sm text-ink-muted">
                   Check back later or contact the admin!
                 </p>
               </div>
@@ -492,31 +484,31 @@ export default function Wishlist() {
         </div>
 
         {/* Suggest gifts for others */}
-        <div className="bg-[#151528] p-6 rounded-2xl border border-white/10 card-glow mt-8">
-          <h2 className="text-2xl font-bold text-santa-snow mb-4">Suggest Gifts for Others</h2>
-          <p className="text-sm text-gray-400 mb-4">
+        <div className="mt-8 rounded-md border border-border bg-surface p-6 shadow-elev-1">
+          <h2 className="mb-4 text-xl font-semibold text-ink-strong">Suggest Gifts for Others</h2>
+          <p className="mb-4 text-sm text-ink-muted">
             Leave gift ideas for someone else in the group. Their Secret Santa will see these suggestions once assignments are sent.
           </p>
 
           {suggestionError && (
-            <div className="bg-santa-red/10 border border-santa-red/30 text-santa-red px-4 py-3 rounded-lg mb-4">
+            <div className="mb-4 rounded-md border border-danger/30 bg-danger/10 px-4 py-3 text-danger">
               {suggestionError}
             </div>
           )}
 
           {roster.length === 0 ? (
-            <p className="text-gray-400 italic">No one else to suggest for yet.</p>
+            <p className="italic text-ink-muted">No one else to suggest for yet.</p>
           ) : (
-            <div className="border border-white/10 p-4 rounded-lg bg-santa-dark/50 space-y-3">
+            <div className="space-y-3 rounded-md border border-border bg-raised p-4">
               <div>
-                <label htmlFor="suggestForPerson" className="block text-sm font-medium text-gray-300 mb-2">
+                <label htmlFor="suggestForPerson" className="mb-2 block text-sm font-medium text-ink-muted">
                   Suggest a gift for
                 </label>
                 <select
                   id="suggestForPerson"
                   value={suggestForPersonId}
                   onChange={(e) => setSuggestForPersonId(e.target.value)}
-                  className="w-full px-3 py-2 bg-santa-dark border border-white/10 rounded focus:ring-2 focus:ring-santa-gold focus:border-transparent text-santa-snow"
+                  className="w-full rounded-sm border border-border bg-surface px-3 py-2 text-ink focus:border-transparent focus:ring-2 focus:ring-accent"
                 >
                   <option value="">-- Select a person --</option>
                   {roster.map((p) => (
@@ -526,7 +518,7 @@ export default function Wishlist() {
               </div>
 
               <div>
-                <label htmlFor="suggestName" className="block text-sm font-medium text-gray-300 mb-2">
+                <label htmlFor="suggestName" className="mb-2 block text-sm font-medium text-ink-muted">
                   Gift idea
                 </label>
                 <input
@@ -535,12 +527,12 @@ export default function Wishlist() {
                   value={suggestName}
                   onChange={(e) => setSuggestName(e.target.value)}
                   placeholder="Item name"
-                  className="w-full px-3 py-2 bg-santa-dark border border-white/10 rounded focus:ring-2 focus:ring-santa-gold focus:border-transparent text-santa-snow placeholder-gray-500"
+                  className="w-full rounded-sm border border-border bg-surface px-3 py-2 text-ink placeholder-ink-muted focus:border-transparent focus:ring-2 focus:ring-accent"
                 />
               </div>
 
               <div>
-                <label htmlFor="suggestNote" className="block text-sm font-medium text-gray-300 mb-2">
+                <label htmlFor="suggestNote" className="mb-2 block text-sm font-medium text-ink-muted">
                   Note (optional)
                 </label>
                 <input
@@ -549,23 +541,23 @@ export default function Wishlist() {
                   value={suggestNote}
                   onChange={(e) => setSuggestNote(e.target.value)}
                   placeholder="A description or a link"
-                  className="w-full px-3 py-2 bg-santa-dark border border-white/10 rounded focus:ring-2 focus:ring-santa-gold focus:border-transparent text-santa-snow placeholder-gray-500"
+                  className="w-full rounded-sm border border-border bg-surface px-3 py-2 text-ink placeholder-ink-muted focus:border-transparent focus:ring-2 focus:ring-accent"
                 />
               </div>
 
-              <label htmlFor="suggestNamed" className="flex items-center gap-2 text-sm text-gray-300">
+              <label htmlFor="suggestNamed" className="flex items-center gap-2 text-sm text-ink-muted">
                 <input
                   id="suggestNamed"
                   type="checkbox"
                   checked={suggestNamed}
                   onChange={(e) => setSuggestNamed(e.target.checked)}
-                  className="w-4 h-4 accent-santa-gold"
+                  className="h-4 w-4 accent-accent"
                 />
                 Show my name (uncheck to suggest anonymously)
               </label>
 
               {suggestForPersonId && suggestionCapReached && (
-                <p className="text-sm text-santa-red">
+                <p className="text-sm text-danger">
                   You&apos;ve reached the limit of {suggestionCap} suggestions for this person.
                 </p>
               )}
@@ -573,7 +565,7 @@ export default function Wishlist() {
               <button
                 onClick={handleAddSuggestion}
                 disabled={suggestionSaving || !suggestForPersonId || !suggestName.trim() || suggestionCapReached}
-                className="w-full bg-santa-green text-white py-3 rounded-xl font-semibold hover:bg-santa-green-dark transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed hover:scale-105 transform"
+                className="w-full rounded-sm bg-primary py-3 font-semibold text-primary-on transition-colors hover:bg-primary-hover disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {suggestionSaving ? "Adding..." : "Add Suggestion"}
               </button>
@@ -581,21 +573,21 @@ export default function Wishlist() {
           )}
 
           <div className="mt-6">
-            <h3 className="font-semibold text-santa-snow mb-3">Your suggestions</h3>
+            <h3 className="mb-3 font-semibold text-ink-strong">Your suggestions</h3>
             {mySuggestions.length === 0 ? (
-              <p className="text-gray-400 italic">You haven&apos;t suggested anything yet.</p>
+              <p className="italic text-ink-muted">You haven&apos;t suggested anything yet.</p>
             ) : (
               <ul className="space-y-3">
                 {mySuggestions.map((s) => (
-                  <li key={s.id} className="border border-white/10 p-4 rounded-lg bg-santa-dark/50 flex justify-between items-start gap-3">
+                  <li key={s.id} className="flex items-start justify-between gap-3 rounded-md border border-border bg-raised p-4">
                     <div className="min-w-0">
-                      <div className="text-sm font-medium text-santa-gold">For {s.forPerson.name}</div>
-                      <div className="font-medium text-santa-snow break-words">{s.name}</div>
-                      {s.note && <p className="text-sm text-gray-300 break-words">{s.note}</p>}
+                      <div className="text-sm font-medium text-accent-text">For {s.forPerson.name}</div>
+                      <div className="break-words font-medium text-ink-strong">{s.name}</div>
+                      {s.note && <p className="break-words text-sm text-ink-muted">{s.note}</p>}
                     </div>
                     <button
                       onClick={() => handleRemoveSuggestion(s.id)}
-                      className="text-santa-red text-sm hover:text-santa-red-dark shrink-0"
+                      className="shrink-0 text-sm text-danger hover:text-danger/80"
                     >
                       Remove
                     </button>

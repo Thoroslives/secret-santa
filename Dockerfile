@@ -16,8 +16,9 @@ WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 
-# Set a dummy DATABASE_URL for build process
-ENV DATABASE_URL="postgresql://user:pass@localhost:5432/db?schema=public"
+# Dummy SQLite DATABASE_URL for the build (prisma generate + next build never
+# connect; it only needs to match the schema's sqlite provider).
+ENV DATABASE_URL="file:/tmp/build.db"
 
 # Generate Prisma Client
 RUN npx prisma generate

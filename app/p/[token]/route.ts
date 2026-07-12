@@ -16,7 +16,11 @@ export async function GET(
   });
 
   if (!person) {
-    return NextResponse.redirect(new URL("/login?error=invalid-link", req.url));
+    // Relative redirect (see below) - resolve against the browser's origin.
+    return new NextResponse(null, {
+      status: 307,
+      headers: { Location: "/login?error=invalid-link" },
+    });
   }
 
   const session = await getSession();
@@ -28,5 +32,10 @@ export async function GET(
   session.isLoggedIn = true;
   await session.save();
 
-  return NextResponse.redirect(new URL("/wishlist", req.url));
+  // Relative redirect: resolves against the browser's own origin, so it works
+  // in dev (browser reaches the dev server through a tunnel/forward) and in
+  // prod (behind the reverse proxy) alike. Building an absolute URL from
+  // req.url leaks the server's bind host (e.g. 0.0.0.0), which the browser
+  // cannot reach.
+  return new NextResponse(null, { status: 307, headers: { Location: "/wishlist" } });
 }

@@ -13,16 +13,18 @@ export const dynamic = "force-dynamic";
 export default function AdminLogin() {
   return (
     <div className="min-h-screen flex items-center justify-center bg-santa-dark p-4">
-      <div className="bg-[#151528] p-8 rounded-2xl border border-white/10 card-glow w-full max-w-md">
-        <div className="text-center mb-6">
-          <div className="text-4xl mb-3">🎅</div>
-          <h1 className="text-3xl font-bold text-santa-red mb-2 font-display">Admin Portal</h1>
+      <div className="w-full max-w-md rounded-lg border border-border bg-surface p-8 shadow-elev-2">
+        <div className="mb-6 text-center">
+          <div className="mx-auto mb-4 h-px w-10 bg-accent-dim" />
+          <h1 className="font-display text-2xl font-medium tracking-[-0.02em] text-ink-strong">
+            Admin Portal
+          </h1>
         </div>
 
         <LoginForm enabled={isOidcConfigured()} breakGlass={isBreakGlassConfigured()} />
 
         <div className="mt-6 text-center">
-          <Link href="/" className="text-sm text-gray-400 hover:text-santa-gold transition-colors">
+          <Link href="/" className="text-sm text-ink-muted hover:text-accent-text transition-colors">
             &larr; Back to Home
           </Link>
         </div>

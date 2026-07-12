@@ -37,7 +37,7 @@ export default function LoginForm({ enabled, breakGlass }: LoginFormProps) {
 
   if (!enabled && !breakGlass) {
     return (
-      <div className="text-center text-gray-400">
+      <div className="text-center text-ink-muted">
         <p>No admin sign-in method is configured.</p>
         <p className="text-sm mt-2">
           Set ADMIN_BREAKGLASS_PASSWORD and/or the OIDC environment variables.
@@ -79,7 +79,7 @@ export default function LoginForm({ enabled, breakGlass }: LoginFormProps) {
   return (
     <div>
       {oidcError && (
-        <div className="bg-santa-red/10 border border-santa-red/30 text-santa-red px-4 py-3 rounded-lg mb-6">
+        <div className="mb-6 rounded-md border border-danger/30 bg-danger/10 px-4 py-3 text-danger">
           {oidcError}
         </div>
       )}
@@ -89,7 +89,7 @@ export default function LoginForm({ enabled, breakGlass }: LoginFormProps) {
         // the IdP, it is not an API call the client can await.
         <a
           href="/api/admin/oidc/login"
-          className="w-full block text-center bg-santa-red text-white py-3 rounded-xl font-semibold hover:bg-santa-red-dark transition-all duration-300 hover:scale-105 transform"
+          className="block w-full rounded-sm bg-primary py-3 text-center font-semibold text-primary-on transition-colors hover:bg-primary-hover"
         >
           Sign in with NorthAuth
         </a>
@@ -101,7 +101,7 @@ export default function LoginForm({ enabled, breakGlass }: LoginFormProps) {
             <button
               type="button"
               onClick={() => setShowBreakGlass(true)}
-              className="w-full text-sm text-gray-400 hover:text-santa-gold transition-colors text-center"
+              className="w-full text-center text-sm text-ink-muted transition-colors hover:text-accent-text"
             >
               Use break-glass password
             </button>
@@ -110,22 +110,23 @@ export default function LoginForm({ enabled, breakGlass }: LoginFormProps) {
           {showBreakGlass && (
             <form onSubmit={handleSubmit} className="space-y-4">
               <div>
-                <label htmlFor="password" className="block text-sm font-medium text-gray-300 mb-2">
+                <label htmlFor="password" className="mb-2 block text-sm font-medium text-ink-muted">
                   Admin Password
                 </label>
+
                 <input
                   type="password"
                   id="password"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  className="w-full px-4 py-2 bg-santa-dark border border-white/10 rounded-lg focus:ring-2 focus:ring-santa-gold focus:border-transparent text-santa-snow placeholder-gray-500"
+                  className="w-full rounded-sm border border-border bg-raised px-4 py-3 text-ink placeholder:text-ink-muted/60 transition-colors focus:border-accent"
                   placeholder="Enter admin password"
                   required
                 />
               </div>
 
               {error && (
-                <div className="bg-santa-red/10 border border-santa-red/30 text-santa-red px-4 py-3 rounded-lg">
+                <div className="rounded-md border border-danger/30 bg-danger/10 px-4 py-3 text-danger">
                   {error}
                 </div>
               )}
@@ -133,7 +134,7 @@ export default function LoginForm({ enabled, breakGlass }: LoginFormProps) {
               <button
                 type="submit"
                 disabled={loading}
-                className="w-full bg-santa-red text-white py-3 rounded-xl font-semibold hover:bg-santa-red-dark transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed hover:scale-105 transform"
+                className="w-full rounded-sm bg-primary py-3 font-semibold text-primary-on transition-colors hover:bg-primary-hover disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {loading ? "Authenticating..." : "Login"}
               </button>

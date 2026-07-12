@@ -2,90 +2,185 @@
 @tailwind components;
 @tailwind utilities;
 
-:root {
-  --background: #FEF2F2;
-  --foreground: #1A1A2E;
+/*
+ * Warm-hearth base. One dark, warm theme (see DESIGN.md). Colour tokens live
+ * in tailwind.config.ts; fonts are injected as CSS vars by app/layout.tsx.
+ */
+
+html {
+  color-scheme: dark;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #1A1A2E;
-    --foreground: #F8FAFC;
-  }
-}
-
-html, body {
+html,
+body {
   overflow-x: hidden;
 }
 
 body {
-  color: var(--foreground);
-  background: var(--background);
-  font-family: Inter, system-ui, -apple-system, sans-serif;
+  min-height: 100dvh;
+  background-color: oklch(0.170 0.014 55);
+  color: oklch(0.940 0.012 85);
+  font-family: var(--font-sans), system-ui, sans-serif;
   font-size: 16px;
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
   -webkit-text-size-adjust: 100%;
+}
+
+::selection {
+  background-color: oklch(0.800 0.120 82 / 0.28);
+  color: oklch(0.975 0.008 85);
+}
+
+/* Gold focus ring, everywhere, for keyboard users */
+:where(a, button, input, textarea, select, [tabindex]):focus-visible {
+  outline: 2px solid oklch(0.800 0.120 82);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* Native dropdowns: under color-scheme:dark, a non-appearance-none <select>'s
+   closed-box text fights the author colour in Chromium and renders near
+   invisible on the dark surface. appearance-none restores author colours; a
+   small chevron replaces the native arrow it removes. Covers every <select>
+   (a per-instance appearance-none, e.g. the group picker, stays valid). */
+select {
+  /* Pin the control's own colour scheme dark: on some platforms the inherited
+     html color-scheme does not reach the native select, so its selected-value
+     text renders in a light-mode (dark) colour and vanishes on the dark
+     surface. Setting it here, plus an explicit author bg + colour, forces it. */
+  color-scheme: dark;
+  -webkit-appearance: none;
+  appearance: none;
+  color: oklch(0.940 0.012 85);
+  background-color: oklch(0.255 0.018 55);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 16 16' fill='none' stroke='%23a89c86' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M4 6l4 4 4-4'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 0.6rem center;
+  background-size: 1em;
+}
+select option {
+  color: oklch(0.940 0.012 85);
+  background-color: oklch(0.215 0.016 55);
 }
 
 @layer utilities {
   .text-balance {
     text-wrap: balance;
   }
+  .text-pretty {
+    text-wrap: pretty;
+  }
+
+  /* The one committed idea: a candlelit room. A single warm pool of light
+     behind the hero that ignites on load, plus a vignette that deepens the
+     corners so the light reads as the focal point. Not a per-card effect. */
+  .hearth-glow {
+    position: relative;
+  }
+  .hearth-glow::before {
+    content: "";
+    position: absolute;
+    inset: -55% -20% auto 50%;
+    translate: -50% 0;
+    width: min(92vw, 840px);
+    aspect-ratio: 1;
+    background: radial-gradient(
+      circle at center,
+      oklch(0.820 0.130 82 / 0.34) 0%,
+      oklch(0.680 0.100 82 / 0.15) 30%,
+      transparent 64%
+    );
+    pointer-events: none;
+    z-index: 0;
+    animation: ignite 1.7s cubic-bezier(0.16, 1, 0.3, 1) both;
+  }
+
+  .room-vignette {
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    z-index: 0;
+    background: radial-gradient(
+      132% 104% at 50% 30%,
+      transparent 40%,
+      oklch(0.118 0.014 55 / 0.60) 100%
+    );
+  }
+
+  .reveal {
+    animation: rise-in 0.7s cubic-bezier(0.16, 1, 0.3, 1) both;
+  }
+
+  /* Match-reveal hero moment (see DESIGN.md): a smaller echo of the hearth
+     glow behind "You are Secret Santa for" on /wishlist, the one place this
+     page is allowed to raise its voice. */
+  .match-reveal {
+    position: relative;
+    animation: rise-in 0.6s cubic-bezier(0.16, 1, 0.3, 1) both;
+  }
+  .match-reveal::before {
+    content: "";
+    position: absolute;
+    inset: -70% -15% auto -15%;
+    width: min(80vw, 520px);
+    aspect-ratio: 1;
+    background: radial-gradient(
+      circle at center,
+      oklch(0.820 0.130 82 / 0.55) 0%,
+      oklch(0.680 0.100 82 / 0.22) 35%,
+      transparent 65%
+    );
+    animation: ignite 1.7s cubic-bezier(0.16, 1, 0.3, 1) 0.15s both;
+    pointer-events: none;
+    z-index: 0;
+  }
+  .match-reveal > * {
+    position: relative;
+    z-index: 1;
+  }
+
+  /* The name scales up as a warm gold glow catches on it - the one moment this
+     page is allowed to raise its voice (chosen live from three reveal options). */
+  .match-reveal-name {
+    display: inline-block;
+    animation: match-name-bloom 0.8s cubic-bezier(0.16, 1, 0.3, 1) both;
+  }
 }
 
-/* Snowflake animation */
-.snowflake {
-  position: fixed;
-  top: -10px;
-  z-index: 50;
-  pointer-events: none;
-  font-size: 1rem;
-  opacity: 0.7;
-  animation: snowfall linear infinite;
-}
-
-@keyframes snowfall {
-  0% {
-    transform: translateY(-10vh) rotate(0deg);
+@keyframes ignite {
+  from {
+    opacity: 0;
+    transform: scale(0.84);
+  }
+  to {
     opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes match-name-bloom {
+  0% {
+    opacity: 0;
+    transform: scale(0.86);
+  }
+  55% {
+    text-shadow: 0 0 30px oklch(0.82 0.13 84 / 0.65);
   }
   100% {
-    transform: translateY(100vh) rotate(360deg);
-    opacity: 0.2;
+    opacity: 1;
+    transform: scale(1);
+    text-shadow: 0 0 18px oklch(0.82 0.13 84 / 0.35);
   }
 }
 
-/* Festive gradient backgrounds */
-.festive-gradient {
-  background: linear-gradient(135deg, #DC2626 0%, #991B1B 25%, #065F46 50%, #059669 75%, #D4A843 100%);
-}
-
-.festive-bg-dark {
-  background: linear-gradient(180deg, #1A1A2E 0%, #2D1B1B 50%, #1A2E1A 100%);
-}
-
-/* Card glow effect */
-.card-glow {
-  box-shadow: 0 0 15px rgba(212, 168, 67, 0.1), 0 4px 6px -1px rgba(0, 0, 0, 0.1);
-  transition: box-shadow 0.3s ease;
-}
-
-.card-glow:hover {
-  box-shadow: 0 0 25px rgba(212, 168, 67, 0.2), 0 10px 15px -3px rgba(0, 0, 0, 0.1);
-}
-
-/* Festive button styles */
-.btn-festive {
-  @apply px-6 py-3 rounded-xl font-semibold transition-all duration-300 transform hover:scale-105;
-}
-
-.btn-red {
-  @apply bg-santa-red text-white hover:bg-santa-red-dark;
-}
-
-.btn-green {
-  @apply bg-santa-green text-white hover:bg-santa-green-dark;
-}
-
-.btn-gold {
-  @apply bg-santa-gold text-santa-dark hover:bg-santa-gold-dark;
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
 }

@@ -166,7 +166,6 @@ import { generateDraw } from '@/lib/secret-santa';
 import { isOidcConfigured, getOidcConfig, buildAdminLoginUrl, completeAdminLogin } from '@/lib/oidc';
 
 import { POST as createGroup } from '@/app/api/groups/create/route';
-import { POST as verifyGroup } from '@/app/api/groups/verify/route';
 import { GET as getGroup, PATCH as patchGroup } from '@/app/api/groups/[id]/route';
 import { GET as listGroups } from '@/app/api/groups/route';
 import { GET as personalLinkLogin } from '@/app/p/[token]/route';
@@ -290,47 +289,6 @@ describe('POST /api/groups/create', () => {
       expect.objectContaining({
         data: expect.objectContaining({ name: 'Test Group', inviteCode: 'ABC123' }),
       }),
-    );
-  });
-});
-
-// ===========================================================================
-// 2. POST /api/groups/verify
-// ===========================================================================
-describe('POST /api/groups/verify', () => {
-  const url = 'http://localhost:3000/api/groups/verify';
-
-  it('returns 400 when invite code is missing', async () => {
-    const req = makePostRequest(url, {});
-    const res = await verifyGroup(req);
-    expect(res.status).toBe(400);
-    const json = await res.json();
-    expect(json.error).toBe('Invite code is required');
-  });
-
-  it('returns 404 when invite code is invalid', async () => {
-    mockPrismaDb.group.findUnique.mockResolvedValue(null);
-
-    const req = makePostRequest(url, { inviteCode: 'WRONG1' });
-    const res = await verifyGroup(req);
-    expect(res.status).toBe(404);
-    const json = await res.json();
-    expect(json.error).toBe('Invalid invite code');
-  });
-
-  it('returns 200 with group data for valid invite code', async () => {
-    const groupData = { id: 'group-1', name: 'Test', inviteCode: 'ABC123', year: 2026 };
-    mockPrismaDb.group.findUnique.mockResolvedValue(groupData);
-
-    const req = makePostRequest(url, { inviteCode: 'abc123' });
-    const res = await verifyGroup(req);
-    expect(res.status).toBe(200);
-    const json = await res.json();
-    expect(json.group).toEqual(groupData);
-
-    // Verify case-insensitive lookup
-    expect(mockPrismaDb.group.findUnique).toHaveBeenCalledWith(
-      expect.objectContaining({ where: { inviteCode: 'ABC123' } }),
     );
   });
 });
@@ -636,6 +594,25 @@ describe('GET /p/[token]', () => {
 describe('POST /api/auth/email-link', () => {
   const url = 'http://localhost:3000/api/auth/email-link';
 
+  // A matching active person as returned by the email-only findMany lookup.
+  const personRow = (over: Record<string, unknown> = {}) => ({
+    id: 'person-1',
+    name: 'Alice',
+    email: 'alice@example.com',
+    groupId: 'group-1',
+    personalLinkToken: 'tok_abc123',
+    active: true,
+    group: { id: 'group-1', name: 'Test Group' },
+    ...over,
+  });
+
+  const post = (body: Record<string, unknown>, ip: string) =>
+    new NextRequest(url, {
+      method: 'POST',
+      body: JSON.stringify(body),
+      headers: { 'Content-Type': 'application/json', 'x-forwarded-for': ip },
+    });
+
   beforeEach(() => {
     process.env.NEXTAUTH_URL = 'http://localhost:3000';
   });
@@ -644,57 +621,39 @@ describe('POST /api/auth/email-link', () => {
     delete process.env.NEXTAUTH_URL;
   });
 
-  it('returns 400 when fields are missing', async () => {
-    const req = makePostRequest(url, { email: 'test@example.com' });
-    const res = await emailLink(req);
+  it('returns 400 when the email is missing', async () => {
+    const res = await emailLink(post({}, '10.0.1.1'));
     expect(res.status).toBe(400);
     const json = await res.json();
-    expect(json.error).toBe('Email and group ID are required');
+    expect(json.error).toBe('Email is required');
+    expect(sendLoginLinkEmail).not.toHaveBeenCalled();
   });
 
-  it('returns the generic message and does not email when the person is not found (security)', async () => {
-    mockPrismaDb.person.findFirst.mockResolvedValue(null);
+  it('returns the generic message and does not email when no person matches (security)', async () => {
+    mockPrismaDb.person.findMany.mockResolvedValue([]);
 
-    const req = new NextRequest(url, {
-      method: 'POST',
-      body: JSON.stringify({ email: 'unknown@example.com', groupId: 'group-1' }),
-      headers: { 'Content-Type': 'application/json', 'x-forwarded-for': '10.0.1.1' },
-    });
-    const res = await emailLink(req);
+    const res = await emailLink(post({ email: 'unknown@example.com' }, '10.0.2.1'));
     expect(res.status).toBe(200);
     const json = await res.json();
     expect(json.message).toBe('If this email is registered, a login link has been sent.');
     expect(sendLoginLinkEmail).not.toHaveBeenCalled();
   });
 
-  it('returns the same generic message and emails the durable link for a known active person', async () => {
-    const personData = {
-      id: 'person-1',
-      name: 'Alice',
-      email: 'alice@example.com',
-      groupId: 'group-1',
-      personalLinkToken: 'tok_abc123',
-      active: true,
-      group: { id: 'group-1', name: 'Test Group' },
-    };
-    mockPrismaDb.person.findFirst.mockResolvedValue(personData);
+  it('looks a person up by email alone (no groupId), case-normalised and active-only, and emails their durable link', async () => {
+    mockPrismaDb.person.findMany.mockResolvedValue([personRow()]);
 
-    const req = new NextRequest(url, {
-      method: 'POST',
-      body: JSON.stringify({ email: 'Alice@Example.com', groupId: 'group-1' }),
-      headers: { 'Content-Type': 'application/json', 'x-forwarded-for': '10.0.1.2' },
-    });
-    const res = await emailLink(req);
+    const res = await emailLink(post({ email: 'Alice@Example.com' }, '10.0.3.1'));
     expect(res.status).toBe(200);
     const json = await res.json();
     expect(json.message).toBe('If this email is registered, a login link has been sent.');
 
-    // Verify case-insensitive lookup
-    expect(mockPrismaDb.person.findFirst).toHaveBeenCalledWith(
+    // Email-only lookup: no groupId in the where, lower-cased, active-only.
+    expect(mockPrismaDb.person.findMany).toHaveBeenCalledWith(
       expect.objectContaining({
-        where: { groupId: 'group-1', email: 'alice@example.com', active: true },
+        where: { email: 'alice@example.com', active: true },
       }),
     );
+    expect(sendLoginLinkEmail).toHaveBeenCalledTimes(1);
     expect(sendLoginLinkEmail).toHaveBeenCalledWith(
       'alice@example.com',
       'Alice',
@@ -703,45 +662,47 @@ describe('POST /api/auth/email-link', () => {
     );
   });
 
-  it('returns the generic message even when the email send fails (no enumeration)', async () => {
-    const personData = {
-      id: 'person-1',
-      name: 'Alice',
-      email: 'alice@example.com',
-      groupId: 'group-1',
-      personalLinkToken: 'tok_abc123',
-      active: true,
-      group: { id: 'group-1', name: 'Test Group' },
-    };
-    mockPrismaDb.person.findFirst.mockResolvedValue(personData);
-    (sendLoginLinkEmail as jest.Mock).mockRejectedValueOnce(new Error('SMTP down'));
+  it('emails a separate link for each group when one address belongs to more than one group', async () => {
+    mockPrismaDb.person.findMany.mockResolvedValue([
+      personRow({ id: 'p-a', groupId: 'group-a', personalLinkToken: 'tok_a', group: { id: 'group-a', name: 'Family A' } }),
+      personRow({ id: 'p-b', groupId: 'group-b', personalLinkToken: 'tok_b', group: { id: 'group-b', name: 'Family B' } }),
+    ]);
 
-    const req = new NextRequest(url, {
-      method: 'POST',
-      body: JSON.stringify({ email: 'alice@example.com', groupId: 'group-1' }),
-      headers: { 'Content-Type': 'application/json', 'x-forwarded-for': '10.0.1.3' },
-    });
-    const res = await emailLink(req);
+    const res = await emailLink(post({ email: 'alice@example.com' }, '10.0.4.1'));
     expect(res.status).toBe(200);
     const json = await res.json();
     expect(json.message).toBe('If this email is registered, a login link has been sent.');
+
+    expect(sendLoginLinkEmail).toHaveBeenCalledTimes(2);
+    expect(sendLoginLinkEmail).toHaveBeenCalledWith('alice@example.com', 'Alice', 'Family A', expect.stringContaining('/p/tok_a'));
+    expect(sendLoginLinkEmail).toHaveBeenCalledWith('alice@example.com', 'Alice', 'Family B', expect.stringContaining('/p/tok_b'));
   });
 
-  it('returns 429 once the rate limit is exceeded', async () => {
-    mockPrismaDb.person.findFirst.mockResolvedValue(null);
-    const ip = '10.0.1.99';
-    const makeRateLimitedReq = () => new NextRequest(url, {
-      method: 'POST',
-      body: JSON.stringify({ email: 'alice@example.com', groupId: 'group-1' }),
-      headers: { 'Content-Type': 'application/json', 'x-forwarded-for': ip },
-    });
+  it('returns the generic message and still attempts the other sends when one send fails (no enumeration)', async () => {
+    mockPrismaDb.person.findMany.mockResolvedValue([
+      personRow({ id: 'p-a', groupId: 'group-a', personalLinkToken: 'tok_a', group: { id: 'group-a', name: 'Family A' } }),
+      personRow({ id: 'p-b', groupId: 'group-b', personalLinkToken: 'tok_b', group: { id: 'group-b', name: 'Family B' } }),
+    ]);
+    (sendLoginLinkEmail as jest.Mock).mockRejectedValueOnce(new Error('SMTP down'));
+
+    const res = await emailLink(post({ email: 'alice@example.com' }, '10.0.5.1'));
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.message).toBe('If this email is registered, a login link has been sent.');
+    // one send threw, the other was still attempted
+    expect(sendLoginLinkEmail).toHaveBeenCalledTimes(2);
+  });
+
+  it('returns 429 once the per-IP rate limit is exceeded', async () => {
+    mockPrismaDb.person.findMany.mockResolvedValue([]);
+    const ip = '10.0.6.99';
 
     for (let i = 0; i < 5; i++) {
-      const res = await emailLink(makeRateLimitedReq());
+      const res = await emailLink(post({ email: 'alice@example.com' }, ip));
       expect(res.status).toBe(200);
     }
 
-    const res = await emailLink(makeRateLimitedReq());
+    const res = await emailLink(post({ email: 'alice@example.com' }, ip));
     expect(res.status).toBe(429);
   });
 });

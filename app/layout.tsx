@@ -1,52 +1,33 @@
 import type { Metadata } from "next";
-import { Inter } from "next/font/google";
+import { Hanken_Grotesk, Hedvig_Letters_Serif } from "next/font/google";
 import "./globals.css";
 
-const inter = Inter({ subsets: ["latin"] });
+const sans = Hanken_Grotesk({
+  subsets: ["latin"],
+  variable: "--font-sans",
+  display: "swap",
+});
+
+const display = Hedvig_Letters_Serif({
+  subsets: ["latin"],
+  weight: "400",
+  variable: "--font-display",
+  display: "swap",
+});
 
 export const metadata: Metadata = {
   title: {
-    default: "Secret Santa Generator - Free Online Gift Exchange Organizer",
-    template: "%s | Secret Santa Generator",
+    default: "Secret Santa",
+    template: "%s · Secret Santa",
   },
-  description: "Free Secret Santa generator for families, friends & offices. Create gift exchange groups, manage wishlists, and automatically assign Secret Santa partners. No registration required!",
-  keywords: "secret santa generator, free secret santa, online gift exchange, secret santa app, family gift exchange, office secret santa, wishlist manager, secret santa organizer",
-  authors: [{ name: "Secret Santa Generator" }],
-  creator: "Secret Santa Generator",
-  metadataBase: new URL("https://santa.wagnerway.co.za"),
-  openGraph: {
-    type: "website",
-    locale: "en_US",
-    url: "https://santa.wagnerway.co.za",
-    siteName: "Secret Santa Generator",
-    title: "Secret Santa Generator - Free Online Gift Exchange",
-    description: "Create and manage Secret Santa gift exchanges for your family, friends, or office. Free, easy to use, and no registration required!",
-    images: [{
-      url: "/og-image.png",
-      width: 1200,
-      height: 630,
-      alt: "Secret Santa Generator - Free Online Gift Exchange",
-    }],
-  },
-  twitter: {
-    card: "summary_large_image",
-    title: "Secret Santa Generator - Free Online Gift Exchange",
-    description: "Create and manage Secret Santa gift exchanges for free!",
-    images: ["/og-image.png"],
-  },
+  description: "A private Secret Santa for the family.",
+  metadataBase: new URL("https://santa.north.cx"),
+  // Private family tool: keep it out of search entirely.
   robots: {
-    index: true,
-    follow: true,
-    googleBot: {
-      index: true,
-      follow: true,
-      "max-video-preview": -1,
-      "max-image-preview": "large",
-      "max-snippet": -1,
-    },
-  },
-  alternates: {
-    canonical: "https://santa.wagnerway.co.za",
+    index: false,
+    follow: false,
+    nocache: true,
+    googleBot: { index: false, follow: false },
   },
 };
 
@@ -56,17 +37,16 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" className="dark">
+    <html lang="en" className={`${sans.variable} ${display.variable}`}>
       <head>
-        <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🎅</text></svg>" />
         <link rel="manifest" href="/manifest.json" />
-        <meta name="theme-color" content="#EF4444" />
+        <meta name="theme-color" content="#201a14" />
         <meta name="apple-mobile-web-app-capable" content="yes" />
         <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
         <meta name="apple-mobile-web-app-title" content="Secret Santa" />
         <link rel="apple-touch-icon" href="/icons/icon-192.png" />
       </head>
-      <body className={`${inter.className} antialiased`}>
+      <body className="font-sans antialiased">
         {children}
         <script
           dangerouslySetInnerHTML={{
