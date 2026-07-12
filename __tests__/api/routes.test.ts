@@ -162,6 +162,14 @@ jest.mock('@/lib/oidc', () => ({
 }));
 
 // ---------------------------------------------------------------------------
+// Mock @/lib/draws - the switch and session routes read the switchable set via
+// this helper; its real DB logic is unit-tested in __tests__/lib/draws.test.ts.
+// ---------------------------------------------------------------------------
+jest.mock('@/lib/draws', () => ({
+  getActiveDrawsForPerson: jest.fn().mockResolvedValue([]),
+}));
+
+// ---------------------------------------------------------------------------
 // Imports (after mocks)
 // ---------------------------------------------------------------------------
 import { ensureRound, getActiveYear, getPreviousYearExclusions } from '@/lib/rounds';
@@ -181,6 +189,8 @@ import { GET as personData } from '@/app/api/auth/person-data/route';
 import { POST as updateWishlist } from '@/app/api/wishlist/route';
 import { GET as getAssignments, DELETE as deleteAssignments } from '@/app/api/assignments/route';
 import { GET as getSessionInfo } from '@/app/api/auth/session/route';
+import { getActiveDrawsForPerson } from '@/lib/draws';
+import { POST as switchDraw } from '@/app/api/auth/switch/route';
 import { POST as adminAuth } from '@/app/api/admin/auth/route';
 import { GET as oidcLogin, dynamic as oidcLoginDynamic } from '@/app/api/admin/oidc/login/route';
 import { GET as oidcCallback, dynamic as oidcCallbackDynamic } from '@/app/api/admin/oidc/callback/route';
@@ -1449,6 +1459,59 @@ describe('GET /api/auth/session', () => {
     expect(json.isAdmin).toBeUndefined();
     expect(json.personId).toBe('person-1');
     expect(json.groupId).toBe('group-1');
+  });
+});
+
+// ===========================================================================
+// POST /api/auth/switch - switch the active draw (multi-group participant).
+// The set is derived LIVE from the authenticated person via getActiveDrawsForPerson
+// (mocked here); the client-supplied personId is membership-checked against it.
+// ===========================================================================
+describe('POST /api/auth/switch', () => {
+  const url = 'http://localhost:3000/api/auth/switch';
+  const setDraws = (d: unknown[]) => (getActiveDrawsForPerson as jest.Mock).mockResolvedValue(d);
+
+  it('returns 401 when not a logged-in participant', async () => {
+    const res = await switchDraw(makePostRequest(url, { personId: 'p-2' }));
+    expect(res.status).toBe(401);
+    expect(getActiveDrawsForPerson).not.toHaveBeenCalled();
+  });
+
+  it('returns 400 when personId is missing', async () => {
+    mockSession.isLoggedIn = true;
+    mockSession.personId = 'p-1';
+    const res = await switchDraw(makePostRequest(url, {}));
+    expect(res.status).toBe(400);
+  });
+
+  it('returns 403 and does NOT re-point when target is not in the live set', async () => {
+    mockSession.isLoggedIn = true;
+    mockSession.personId = 'p-1';
+    mockSession.groupId = 'g-1';
+    setDraws([{ personId: 'p-1', personName: 'Chris', groupId: 'g-1', groupName: 'Family Draw' }]);
+    const res = await switchDraw(makePostRequest(url, { personId: 'p-99' }));
+    expect(res.status).toBe(403);
+    expect(mockSession.personId).toBe('p-1');
+    expect(mockSession.groupId).toBe('g-1');
+    expect(mockSession.save).not.toHaveBeenCalled();
+    expect(getActiveDrawsForPerson).toHaveBeenCalledWith('p-1');
+  });
+
+  it('re-points the session to a target in the set and returns it', async () => {
+    mockSession.isLoggedIn = true;
+    mockSession.personId = 'p-1';
+    mockSession.groupId = 'g-1';
+    setDraws([
+      { personId: 'p-1', personName: 'Chris', groupId: 'g-1', groupName: 'Family Draw' },
+      { personId: 'p-2', personName: 'Chris', groupId: 'g-2', groupName: 'Partner Draw' },
+    ]);
+    const res = await switchDraw(makePostRequest(url, { personId: 'p-2' }));
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ personId: 'p-2', personName: 'Chris', groupId: 'g-2', groupName: 'Partner Draw' });
+    expect(mockSession.personId).toBe('p-2');
+    expect(mockSession.groupId).toBe('g-2');
+    expect(mockSession.groupName).toBe('Partner Draw');
+    expect(mockSession.save).toHaveBeenCalled();
   });
 });
 
