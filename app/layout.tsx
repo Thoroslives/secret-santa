@@ -44,7 +44,10 @@ export default function RootLayout({
         <meta name="apple-mobile-web-app-capable" content="yes" />
         <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
         <meta name="apple-mobile-web-app-title" content="Secret Santa" />
-        <link rel="apple-touch-icon" href="/icons/icon-192.png" />
+        {/* Its own full-bleed, opaque icon: iOS fills transparency with black
+            and applies its own corner rounding, so it can't reuse the rounded
+            chip the other surfaces use. */}
+        <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
       </head>
       <body className="font-sans antialiased">
         {children}

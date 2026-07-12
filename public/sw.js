@@ -1,4 +1,7 @@
-const CACHE_NAME = "secret-santa-v1";
+// Bump on any change to a cached static asset. The fetch handler is cache-first
+// for /icons/ and for every .png/.svg/.ico, so an installed client keeps serving
+// the old icons forever until the cache name changes and activate() drops it.
+const CACHE_NAME = "secret-santa-v2";
 
 const APP_SHELL = [
   "/",

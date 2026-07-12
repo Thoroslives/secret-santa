@@ -1,8 +1,11 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
-  <rect width="512" height="512" rx="64" fill="#0F172A"/>
-  <rect x="112" y="176" width="288" height="224" rx="16" fill="#EF4444"/>
-  <rect x="240" y="176" width="32" height="224" fill="#FDE047"/>
-  <rect x="112" y="272" width="288" height="32" fill="#FDE047"/>
-  <path d="M256 64 L216 176 H296 Z" fill="#22C55E"/>
-  <circle cx="256" cy="176" r="28" fill="#FDE047"/>
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512" role="img" aria-label="Secret Santa">
+  <!-- Rounded chip: browser tab, PWA any-purpose, Unraid container. -->
+  <rect width="512" height="512" rx="112" fill="#140E0A"/>
+  <g transform="translate(97.6 58) scale(6.6)">
+    <rect x="21" y="50" width="6" height="8" rx="1" fill="#4F3F32"/>
+    <polygon points="24,31 8,50 40,50" fill="#337344"/>
+    <polygon points="24,20 12,38 36,38" fill="#428653"/>
+    <polygon points="24,11 16,25 32,25" fill="#4D965F"/>
+    <path d="M24 2 L26 7 L31 8 L26 9 L24 14 L22 9 L17 8 L22 7 Z" fill="#E4B65C"/>
+  </g>
 </svg>
