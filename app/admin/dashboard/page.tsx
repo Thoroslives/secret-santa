@@ -606,14 +606,14 @@ export default function AdminDashboard() {
 
   if (loading) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-canvas">
+      <div className="flex min-h-[100svh] items-center justify-center bg-canvas">
         <div className="text-xl text-ink-muted">Loading...</div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-canvas p-4 md:p-8">
+    <div className="min-h-[100svh] bg-canvas p-4 md:p-8">
       <div className="mx-auto max-w-7xl">
         <div className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div className="min-w-0">

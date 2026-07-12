@@ -345,14 +345,14 @@ export default function Wishlist() {
 
   if (loading) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-canvas">
+      <div className="flex min-h-[100svh] items-center justify-center bg-canvas">
         <div className="text-xl text-ink-muted">Loading...</div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-canvas p-4 md:p-8">
+    <div className="min-h-[100svh] bg-canvas p-4 md:p-8">
       <div className="mx-auto max-w-6xl">
         {draws.length > 1 && (
           <div className="mb-6 flex flex-wrap gap-2" role="tablist" aria-label="Your draws">

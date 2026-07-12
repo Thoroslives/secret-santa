@@ -12,7 +12,7 @@ export const dynamic = "force-dynamic";
 
 export default function AdminLogin() {
   return (
-    <div className="min-h-screen flex items-center justify-center bg-santa-dark p-4">
+    <div className="min-h-[100svh] flex items-center justify-center bg-santa-dark p-4">
       <div className="w-full max-w-md rounded-lg border border-border bg-surface p-8 shadow-elev-2">
         <div className="mb-6 text-center">
           <div className="mx-auto mb-4 h-px w-10 bg-accent-dim" />
