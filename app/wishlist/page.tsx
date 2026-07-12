@@ -37,6 +37,16 @@ interface MatchSuggestion {
   from: string;
 }
 
+// One switchable draw for a participant whose email is in more than one group.
+// Structural copy of lib/draws.ts's Draw - NOT imported, because lib/draws.ts
+// pulls in prisma, which must never reach the client bundle.
+interface Draw {
+  personId: string;
+  personName: string;
+  groupId: string;
+  groupName: string;
+}
+
 // A note is rendered as a link when it looks like one; otherwise it's shown as plain text.
 const isLinkNote = (note: string) => /^https?:\/\//.test(note.trim());
 
@@ -45,6 +55,7 @@ export default function Wishlist() {
   const [personName, setPersonName] = useState("");
   const [groupName, setGroupName] = useState("");
   const [groupId, setGroupId] = useState("");
+  const [draws, setDraws] = useState<Draw[]>([]);
   const [items, setItems] = useState<WishlistItem[]>([
     { title: "", note: "" },
   ]);
@@ -80,6 +91,7 @@ export default function Wishlist() {
         setPersonName(session.personName);
         setGroupName(session.groupName || "");
         setGroupId(session.groupId);
+        setDraws(session.draws ?? []);
 
         loadPersonData(session.groupId);
       })
@@ -145,6 +157,44 @@ export default function Wishlist() {
       setLoading(false);
     } catch (err) {
       setError("Failed to load data");
+      setLoading(false);
+    }
+  };
+
+  // Switch the active draw: re-point the server session, then reload that draw's
+  // data. Reset per-draw UI first so the previous draw never bleeds through, and
+  // clear dirtyRef so the reset does not trigger an autosave into the new draw.
+  const switchDraw = async (target: Draw) => {
+    if (target.personId === personId) return;
+    setLoading(true);
+    setError("");
+    dirtyRef.current = false;
+    setItems([{ title: "", note: "" }]);
+    setAssignment(null);
+    setBudget(null);
+    setRoster([]);
+    setMySuggestions([]);
+    setMatchSuggestions([]);
+    setSuggestForPersonId("");
+    setSaveStatus("idle");
+    try {
+      const res = await fetch("/api/auth/switch", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ personId: target.personId }),
+      });
+      if (!res.ok) {
+        setError("Couldn't switch draw. Try again.");
+        setLoading(false);
+        return;
+      }
+      setPersonId(target.personId);
+      setPersonName(target.personName);
+      setGroupId(target.groupId);
+      setGroupName(target.groupName);
+      await loadPersonData(target.groupId);
+    } catch {
+      setError("Couldn't switch draw. Try again.");
       setLoading(false);
     }
   };
@@ -304,6 +354,29 @@ export default function Wishlist() {
   return (
     <div className="min-h-screen bg-canvas p-4 md:p-8">
       <div className="mx-auto max-w-6xl">
+        {draws.length > 1 && (
+          <div className="mb-6 flex flex-wrap gap-2" role="tablist" aria-label="Your draws">
+            {draws.map((d) => {
+              const isActive = d.personId === personId;
+              return (
+                <button
+                  key={d.personId}
+                  role="tab"
+                  aria-selected={isActive}
+                  onClick={() => switchDraw(d)}
+                  disabled={isActive}
+                  className={
+                    isActive
+                      ? "min-h-[44px] rounded-sm bg-primary px-4 py-2 font-semibold text-primary-on"
+                      : "min-h-[44px] rounded-sm border border-border px-4 py-2 text-ink-muted transition-colors hover:bg-raised hover:text-ink"
+                  }
+                >
+                  {d.groupName}
+                </button>
+              );
+            })}
+          </div>
+        )}
         <div className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div className="min-w-0">
             <h1 className="truncate font-display text-2xl font-medium tracking-[-0.02em] text-ink-strong sm:text-4xl">
