@@ -80,6 +80,19 @@ describe("AdminDashboard: deleting a draw", () => {
     );
   });
 
+  // It belongs at the very bottom, past everything the admin actually came here to do -
+  // not floating in the middle of the card grid where it sat first time round.
+  it("sits at the bottom of the page, after the working sections", async () => {
+    installFetch([], { id: "r1", status: "draft", sentAt: null });
+    render(<AdminDashboard />);
+
+    const danger = await screen.findByRole("heading", { name: /danger zone/i });
+    const santa = screen.getByRole("heading", { name: /^secret santa$/i });
+
+    // Node.DOCUMENT_POSITION_FOLLOWING === 4: the danger zone comes AFTER the Secret Santa card.
+    expect(santa.compareDocumentPosition(danger) & 4).toBeTruthy();
+  });
+
   it("does not call the API when the confirm is declined", async () => {
     const fetchMock = installFetch([], { id: "r1", status: "draft", sentAt: null });
     jest.spyOn(window, "confirm").mockReturnValue(false);

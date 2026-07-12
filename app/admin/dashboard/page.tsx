@@ -1479,27 +1479,6 @@ export default function AdminDashboard() {
               </div>
             </div>
 
-            {/* Danger zone. Deleting a group is the one irreversible thing the admin can
-                do here, so it lives on its own, below everything else, and the confirm
-                names what dies rather than asking "are you sure?". The server takes a
-                database snapshot before the cascade. */}
-            {activeGroupId && (
-              <div className="rounded-md border border-danger/40 bg-surface p-6 shadow-elev-1">
-                <h2 className="mb-1 text-xl font-semibold text-ink-strong">Danger zone</h2>
-                <p className="mb-4 text-sm text-ink-muted">
-                  Deleting this draw removes its {people.length}{" "}
-                  {people.length === 1 ? "person" : "people"}, their wishlists, and every year of
-                  history. There is no undo.
-                </p>
-                <button
-                  onClick={handleDeleteGroup}
-                  className="w-full rounded-sm border border-danger/40 py-2 font-semibold text-danger transition-colors hover:bg-danger/10"
-                >
-                  Delete this draw
-                </button>
-              </div>
-            )}
-
             {/* Group Settings */}
             <div className="rounded-md border border-border bg-surface p-6 shadow-elev-1">
               <h2 className="mb-4 text-xl font-semibold text-ink-strong">Settings</h2>
@@ -1837,6 +1816,27 @@ export default function AdminDashboard() {
                   </tbody>
                 </table>
               </div>
+            </div>
+          )}
+
+          {/* Danger zone. Deleting a draw is the one irreversible thing on this page, so it
+              sits alone at the very bottom, out of the card grid and past everything the
+              admin actually came here to do. The confirm names what dies rather than asking
+              "are you sure?", and the server snapshots the database before the cascade. */}
+          {activeGroupId && (
+            <div className="mt-8 rounded-md border border-danger/40 bg-surface p-6 shadow-elev-1">
+              <h2 className="mb-1 text-xl font-semibold text-danger">Danger zone</h2>
+              <p className="mb-4 text-sm text-ink-muted">
+                Deleting this draw removes its {people.length}{" "}
+                {people.length === 1 ? "person" : "people"}, their wishlists, and every year of
+                history. There is no undo.
+              </p>
+              <button
+                onClick={handleDeleteGroup}
+                className="w-full rounded-sm border border-danger/40 py-2 font-semibold text-danger transition-colors hover:bg-danger/10 sm:w-auto sm:px-6"
+              >
+                Delete this draw
+              </button>
             </div>
           )}
           </>
