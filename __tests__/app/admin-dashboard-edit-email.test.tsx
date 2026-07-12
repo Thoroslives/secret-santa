@@ -38,6 +38,7 @@ function installFetch(opts: {
   patch?: () => Promise<Response>;
   resend?: () => Promise<Response>;
   assignments?: unknown[];
+  round?: unknown;
 }) {
   const calls: Recorded[] = [];
 
@@ -55,7 +56,11 @@ function installFetch(opts: {
       return res(200, { year: 2025, activeYear: 2026, pairs: [], count: 0, seededYears: [] });
     }
     if (url.endsWith("/api/groups")) return res(200, [group]);
-    if (url.includes("/api/assignments")) return res(200, { assignments: opts.assignments ?? [] });
+    if (url.includes("/api/assignments")) {
+      // The round ships SEPARATELY from the rows (a round can be `sent` while holding zero
+      // assignments, so the row count cannot stand in for its state).
+      return res(200, { assignments: opts.assignments ?? [], round: opts.round ?? null });
+    }
     if (url.includes("/api/groups/g1")) return res(200, { group });
     if (/\/api\/people\/[^/]+\/resend/.test(url)) {
       return opts.resend ? opts.resend() : res(200, { sent: true, email: alice.email });
@@ -246,12 +251,12 @@ describe("AdminDashboard: the cross-draw link warning", () => {
 
 describe("AdminDashboard: resend one person's match email", () => {
   const sentDraw = {
+    round: { id: "r1", status: "sent", sentAt: "2026-07-12T20:40:16.000Z" },
     assignments: [
       {
         id: "x",
-        giver: { name: "Alice" },
-        receiver: { name: "Bob", wishlistItems: [] },
-        round: { status: "sent" },
+        giver: { id: "a", name: "Alice" },
+        receiver: { id: "b", name: "Bob", wishlistItems: [] },
       },
     ],
   };
@@ -324,12 +329,12 @@ describe("AdminDashboard: resend one person's match email", () => {
   // 400. A control that cannot succeed should not be on screen.
   it("offers no resend button while the draw is generated but not yet sent", async () => {
     installFetch({
+      round: { id: "r1", status: "generated", sentAt: null },
       assignments: [
         {
           id: "x",
-          giver: { name: "Alice" },
-          receiver: { name: "Bob", wishlistItems: [] },
-          round: { status: "generated" },
+          giver: { id: "a", name: "Alice" },
+          receiver: { id: "b", name: "Bob", wishlistItems: [] },
         },
       ],
     });

@@ -17,6 +17,24 @@ export async function ensureRound(groupId: string, year: number) {
 }
 
 /**
+ * Read a group's round for a year WITHOUT creating one. `ensureRound` is an upsert, so
+ * it must never be used to answer a question - a read path that called it would
+ * materialize a Round row as a side effect. Kept here beside it so the composite-key
+ * literal for @@unique([groupId, year]) lives in one place.
+ */
+export async function getRound(groupId: string, year: number) {
+  return prisma.round.findUnique({ where: { groupId_year: { groupId, year } } });
+}
+
+/**
+ * Putting a round back to "no draw yet". `sentAt` MUST be cleared alongside the status:
+ * it is the record that emails went out, and the destructive routes branch on it to
+ * decide whether to take a database snapshot first. A reset that left a stale `sentAt`
+ * behind would quietly make every later delete snapshot the database forever.
+ */
+export const RESET_TO_DRAFT = { status: "draft", sentAt: null } as const;
+
+/**
  * The single source of truth for "the current cycle". Group.year is the
  * active-year pointer; every current-cycle route resolves the year from here
  * server-side instead of trusting a client-supplied year (A3/A4 rollover

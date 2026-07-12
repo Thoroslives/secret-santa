@@ -31,7 +31,7 @@ const adminApiRoutes = [
 
 // Routes that require admin for write operations
 const adminWriteRoutes = [
-  "/api/groups/", // PATCH operations on groups
+  "/api/groups/", // PATCH and DELETE operations on groups
 ];
 
 export async function middleware(request: NextRequest) {
@@ -90,9 +90,17 @@ export async function middleware(request: NextRequest) {
     return response;
   }
 
-  // Check group write operations (PATCH)
+  // Check group write operations (PATCH, DELETE).
+  //
+  // DELETE matters most: it cascades an entire group away (people, wishlists, rounds,
+  // assignments, the lot). Without it here, DELETE /api/groups/[id] fell through every
+  // branch of this middleware to the bare `return response` below, leaving the in-route
+  // isAdmin check as its ONLY gate - the single most destructive endpoint in the app
+  // would have been the one admin write that was not double-gated. Note the exact-match
+  // block above deliberately keeps GET /api/groups/[id] open to participants; that must
+  // never be allowed to extend to DELETE.
   for (const route of adminWriteRoutes) {
-    if (pathname.startsWith(route) && method === "PATCH") {
+    if (pathname.startsWith(route) && (method === "PATCH" || method === "DELETE")) {
       if (!session.isAdmin) {
         return NextResponse.json({ error: "Admin authentication required" }, { status: 403 });
       }

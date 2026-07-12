@@ -9,6 +9,7 @@ const mockPrismaDb = {
     findUnique: jest.fn(),
     findMany: jest.fn(),
     update: jest.fn(),
+    delete: jest.fn(),
   },
   person: {
     findFirst: jest.fn(),
@@ -28,6 +29,7 @@ const mockPrismaDb = {
     findMany: jest.fn(),
     create: jest.fn(),
     deleteMany: jest.fn(),
+    count: jest.fn(),
   },
   block: {
     findFirst: jest.fn(),
@@ -57,6 +59,7 @@ const mockPrismaDb = {
     delete: jest.fn(),
   },
   $transaction: jest.fn(),
+  $executeRawUnsafe: jest.fn(),
   $disconnect: jest.fn(),
 };
 
@@ -145,6 +148,10 @@ jest.mock('@/lib/rounds', () => ({
   ensureRound: jest.fn(),
   getActiveYear: jest.fn(),
   getPreviousYearExclusions: jest.fn(),
+  getRound: jest.fn(),
+  // Not a jest.fn: the routes spread this as the reset payload, and `sentAt: null` is
+  // load-bearing (the snapshot gate branches on sentAt).
+  RESET_TO_DRAFT: { status: 'draft', sentAt: null },
 }));
 
 // ---------------------------------------------------------------------------
@@ -178,14 +185,14 @@ jest.mock('@/lib/draws', () => ({
 // ---------------------------------------------------------------------------
 // Imports (after mocks)
 // ---------------------------------------------------------------------------
-import { ensureRound, getActiveYear, getPreviousYearExclusions } from '@/lib/rounds';
+import { ensureRound, getActiveYear, getPreviousYearExclusions, getRound } from '@/lib/rounds';
 import { generateGroupInviteCode, generatePersonalLinkToken, validateWishlistItems } from '@/lib/utils';
 import { sendLoginLinkEmail, sendMatchReadyEmail, sendAllDrawsLinkEmail } from '@/lib/email';
 import { generateDraw } from '@/lib/secret-santa';
 import { isOidcConfigured, getOidcConfig, buildAdminLoginUrl, completeAdminLogin, oidcCallbackUrl } from '@/lib/oidc';
 
 import { POST as createGroup } from '@/app/api/groups/create/route';
-import { GET as getGroup, PATCH as patchGroup } from '@/app/api/groups/[id]/route';
+import { GET as getGroup, PATCH as patchGroup, DELETE as deleteGroup } from '@/app/api/groups/[id]/route';
 import { GET as listGroups } from '@/app/api/groups/route';
 import { GET as personalLinkLogin } from '@/app/p/[token]/route';
 import { POST as emailLink } from '@/app/api/auth/email-link/route';
@@ -1088,7 +1095,7 @@ describe('DELETE /api/people/[id]', () => {
   // P4 collapse: no per-group ownership left - the super-admin can delete a
   // person belonging to any group.
   it('super-admin can delete a person belonging to a group other than any specific one', async () => {
-    mockPrismaDb.person.findUnique.mockResolvedValue({ id: 'person-9', groupId: 'some-other-group' });
+    mockPrismaDb.person.findUnique.mockResolvedValue({ id: 'person-9', groupId: 'some-other-group', group: { year: 2026 } });
     mockPrismaDb.person.delete.mockResolvedValue({ id: 'person-9' });
     const req = makeDeleteRequest('http://localhost:3000/api/people/person-9');
     const res = await deletePerson(req, { params: { id: 'person-9' } } as any);
@@ -1099,7 +1106,7 @@ describe('DELETE /api/people/[id]', () => {
   it('returns 200 on successful delete', async () => {
     // The route looks the person up (and checks group ownership) before deleting -
     // this was previously masked by the getSession() crash, so the mock was never needed.
-    mockPrismaDb.person.findUnique.mockResolvedValue({ id: 'person-1', groupId: 'group-1' });
+    mockPrismaDb.person.findUnique.mockResolvedValue({ id: 'person-1', groupId: 'group-1', group: { year: 2026 } });
     mockPrismaDb.person.delete.mockResolvedValue({ id: 'person-1' });
 
     const req = makeDeleteRequest('http://localhost:3000/api/people/person-1');
@@ -1111,7 +1118,7 @@ describe('DELETE /api/people/[id]', () => {
   });
 
   it('returns 500 on error', async () => {
-    mockPrismaDb.person.findUnique.mockResolvedValue({ id: 'nonexistent', groupId: 'group-1' });
+    mockPrismaDb.person.findUnique.mockResolvedValue({ id: 'nonexistent', groupId: 'group-1', group: { year: 2026 } });
     mockPrismaDb.person.delete.mockRejectedValue(new Error('DB error'));
 
     const req = makeDeleteRequest('http://localhost:3000/api/people/nonexistent');
@@ -1119,6 +1126,122 @@ describe('DELETE /api/people/[id]', () => {
     expect(res.status).toBe(500);
     const json = await res.json();
     expect(json.error).toBe('Internal server error');
+  });
+
+  // -------------------------------------------------------------------------
+  // The stranding bug (2026-07-13). Deleting a person cascade-deletes their
+  // Assignment rows but used to leave Round.status alone, so a `sent` round
+  // survived with a broken (or empty) draw - and generate refuses a `sent`
+  // round, which stranded the live group with no way out from the UI.
+  //
+  // The round is only ever touched when the deleted person was ACTUALLY in the
+  // active draw. Wiping unconditionally would detonate a perfectly good draw
+  // when removing someone who holds no assignments at all (deactivated, or
+  // added after the draw was generated).
+  // -------------------------------------------------------------------------
+  describe('the active round', () => {
+    const person = { id: 'person-1', groupId: 'group-1', group: { year: 2026 } };
+
+    // Interactive transaction: run the callback against the same mock.
+    const runTx = () =>
+      mockPrismaDb.$transaction.mockImplementation(async (cb: any) => cb(mockPrismaDb));
+
+    it('leaves the round alone when the person is NOT in the active draw', async () => {
+      mockPrismaDb.person.findUnique.mockResolvedValue(person);
+      (getRound as jest.Mock).mockResolvedValue({ id: 'round-1', status: 'sent' });
+      mockPrismaDb.assignment.count.mockResolvedValue(0); // holds no rows in this draw
+      mockPrismaDb.person.delete.mockResolvedValue(person);
+
+      const req = makeDeleteRequest('http://localhost:3000/api/people/person-1');
+      const res = await deletePerson(req, { params: { id: 'person-1' } } as any);
+
+      expect(res.status).toBe(200);
+      expect(mockPrismaDb.person.delete).toHaveBeenCalledWith({ where: { id: 'person-1' } });
+      // Everyone else's SENT draw survives untouched. Wiping it here (rev 1 of the
+      // plan did) would silently un-reveal matches the family had already opened.
+      expect(mockPrismaDb.assignment.deleteMany).not.toHaveBeenCalled();
+      expect(mockPrismaDb.round.updateMany).not.toHaveBeenCalled();
+      expect(mockPrismaDb.$transaction).not.toHaveBeenCalled();
+    });
+
+    // Both cascade edges count. A person who only ever RECEIVES still has a row
+    // (someone -> them); deleting them tears that giver's match out of a sent round.
+    // A giver-only predicate would misfile them as "not in the draw" and let it through.
+    it('counts the person as in the draw whether they are the giver OR the receiver', async () => {
+      mockPrismaDb.person.findUnique.mockResolvedValue(person);
+      (getRound as jest.Mock).mockResolvedValue({ id: 'round-1', status: 'sent' });
+      mockPrismaDb.assignment.count.mockResolvedValue(1);
+
+      const req = makeDeleteRequest('http://localhost:3000/api/people/person-1');
+      await deletePerson(req, { params: { id: 'person-1' } } as any);
+
+      expect(mockPrismaDb.assignment.count).toHaveBeenCalledWith({
+        where: {
+          roundId: 'round-1',
+          OR: [{ giverId: 'person-1' }, { receiverId: 'person-1' }],
+        },
+      });
+    });
+
+    it('REFUSES with 409 when the person is in a draw that has already been SENT', async () => {
+      mockPrismaDb.person.findUnique.mockResolvedValue(person);
+      (getRound as jest.Mock).mockResolvedValue({ id: 'round-1', status: 'sent' });
+      mockPrismaDb.assignment.count.mockResolvedValue(1); // they ARE in the draw
+
+      const req = makeDeleteRequest('http://localhost:3000/api/people/person-1');
+      const res = await deletePerson(req, { params: { id: 'person-1' } } as any);
+
+      expect(res.status).toBe(409);
+      expect((await res.json()).error).toMatch(/already been sent/i);
+      // Nothing is destroyed. Resetting the draw stays a deliberate, separate act.
+      expect(mockPrismaDb.person.delete).not.toHaveBeenCalled();
+      expect(mockPrismaDb.assignment.deleteMany).not.toHaveBeenCalled();
+      expect(mockPrismaDb.$transaction).not.toHaveBeenCalled();
+    });
+
+    it('clears the draw and resets the round to draft when the draw was never sent', async () => {
+      mockPrismaDb.person.findUnique.mockResolvedValue(person);
+      (getRound as jest.Mock).mockResolvedValue({ id: 'round-1', status: 'generated' });
+      mockPrismaDb.assignment.count.mockResolvedValue(1);
+      mockPrismaDb.round.updateMany.mockResolvedValue({ count: 1 }); // CAS wins
+      runTx();
+
+      const req = makeDeleteRequest('http://localhost:3000/api/people/person-1');
+      const res = await deletePerson(req, { params: { id: 'person-1' } } as any);
+
+      expect(res.status).toBe(200);
+      // ONE transaction - a partial delete must never be able to strand the round.
+      expect(mockPrismaDb.$transaction).toHaveBeenCalledTimes(1);
+      expect(mockPrismaDb.person.delete).toHaveBeenCalledWith({ where: { id: 'person-1' } });
+      // Scoped by roundId, not (groupId, year): a concurrent rollover moves the year
+      // pointer, and a year-scoped write would then shred the wrong round's history.
+      expect(mockPrismaDb.assignment.deleteMany).toHaveBeenCalledWith({
+        where: { roundId: 'round-1' },
+      });
+      expect(mockPrismaDb.round.updateMany).toHaveBeenCalledWith({
+        where: { id: 'round-1', status: { in: ['draft', 'generated'] } },
+        data: { status: 'draft', sentAt: null },
+      });
+    });
+
+    // TOCTOU: the status is read before the transaction, and POST /api/rounds/send
+    // awaits one SMTP call per person, so it can flip generated -> sent inside that
+    // window. The compare-and-swap must lose, and NOTHING may be destroyed - deleting
+    // the assignments anyway would leave rows-gone/status-sent: the original bug.
+    it('aborts with 409 when a concurrent send flips the round to sent mid-delete', async () => {
+      mockPrismaDb.person.findUnique.mockResolvedValue(person);
+      (getRound as jest.Mock).mockResolvedValue({ id: 'round-1', status: 'generated' });
+      mockPrismaDb.assignment.count.mockResolvedValue(1);
+      mockPrismaDb.round.updateMany.mockResolvedValue({ count: 0 }); // CAS loses: it is `sent` now
+      runTx();
+
+      const req = makeDeleteRequest('http://localhost:3000/api/people/person-1');
+      const res = await deletePerson(req, { params: { id: 'person-1' } } as any);
+
+      expect(res.status).toBe(409);
+      expect(mockPrismaDb.assignment.deleteMany).not.toHaveBeenCalled();
+      expect(mockPrismaDb.person.delete).not.toHaveBeenCalled();
+    });
   });
 });
 
@@ -1817,6 +1940,7 @@ describe('GET /api/assignments', () => {
   beforeEach(() => {
     mockSession.isAdmin = true;
     (getActiveYear as jest.Mock).mockResolvedValue(2026);
+    (getRound as jest.Mock).mockResolvedValue({ id: 'round-1', status: 'generated', sentAt: null });
   });
 
   it('forbids an anonymous request', async () => {
@@ -1960,6 +2084,7 @@ describe('DELETE /api/assignments', () => {
   beforeEach(() => {
     mockSession.isAdmin = true;
     (getActiveYear as jest.Mock).mockResolvedValue(2026);
+    (getRound as jest.Mock).mockResolvedValue({ id: 'round-1', status: 'generated', sentAt: null });
   });
 
   it('returns 400 when groupId is missing', async () => {
@@ -1996,8 +2121,10 @@ describe('DELETE /api/assignments', () => {
     const req = makeDeleteRequest('http://localhost:3000/api/assignments?groupId=some-other-group');
     const res = await deleteAssignments(req);
     expect(res.status).toBe(200);
+    // Scoped by roundId, not (groupId, year): the year is read before the transaction, so a
+    // concurrent rollover would otherwise point this at the WRONG round and shred history.
     expect(mockPrismaDb.assignment.deleteMany).toHaveBeenCalledWith({
-      where: { groupId: 'some-other-group', year: 2026 },
+      where: { roundId: 'round-1' },
     });
   });
 
@@ -2010,11 +2137,11 @@ describe('DELETE /api/assignments', () => {
     expect(res.status).toBe(200);
     expect((await res.json()).success).toBe(true);
     // the round must be reset so a post-send delete doesn't brick regeneration
-    expect(mockPrismaDb.round.updateMany).toHaveBeenCalledWith(
-      expect.objectContaining({ where: { groupId: 'group-1', year: 2026 }, data: { status: 'draft', sentAt: null } })
+    expect(mockPrismaDb.round.update).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { id: 'round-1' }, data: { status: 'draft', sentAt: null } })
     );
     expect(mockPrismaDb.assignment.deleteMany).toHaveBeenCalledWith({
-      where: { groupId: 'group-1', year: 2026 },
+      where: { roundId: 'round-1' },
     });
   });
 
@@ -2024,8 +2151,11 @@ describe('DELETE /api/assignments', () => {
 
     const req = makeDeleteRequest('http://localhost:3000/api/assignments?groupId=group-1&year=1999');
     await deleteAssignments(req);
+    // The active year (2026) is what resolves the round; 1999 is never consulted, and the
+    // writes are then scoped to that round's id.
+    expect(getRound).toHaveBeenCalledWith('group-1', 2026);
     expect(mockPrismaDb.assignment.deleteMany).toHaveBeenCalledWith({
-      where: { groupId: 'group-1', year: 2026 },
+      where: { roundId: 'round-1' },
     });
   });
 });
@@ -2552,11 +2682,19 @@ describe('POST /api/rounds/generate', () => {
     expect(ensureRound).toHaveBeenCalledWith('some-other-group', 2026);
   });
 
+  // Deliberately UNCONDITIONAL. A `sent` round is refused even when it currently
+  // holds zero assignments, because `sent` + `sentAt` is the fingerprint of a draw
+  // that WAS delivered - the row count cannot tell "test people nobody cared about"
+  // from "the family opened their matches and then something ate the rows". The
+  // escape from a stranded round is the explicit Reset draw control, never a silent
+  // regeneration. (Plan review, 2026-07-13: a guard keyed on the row count that the
+  // bug itself deletes is fail-open.)
   it('refuses to regenerate a sent round', async () => {
     (ensureRound as jest.Mock).mockResolvedValue({ id: 'round-1', status: 'sent' });
     const res = await generateRound(makePostRequest(url, { groupId: 'group-1' }));
     expect(res.status).toBe(400);
     expect((await res.json()).error).toMatch(/already been sent/i);
+    expect(mockPrismaDb.$transaction).not.toHaveBeenCalled();
   });
 
   it('returns 400 with fewer than 3 active people', async () => {
@@ -3906,5 +4044,169 @@ describe('GET /api/admin/oidc/callback', () => {
     expect(loggedText).toContain(ALLOWED_EMAIL);
 
     infoSpy.mockRestore();
+  });
+});
+
+// ===========================================================================
+// DELETE /api/groups/[id] - the most destructive endpoint in the app.
+// ===========================================================================
+describe('DELETE /api/groups/[id]', () => {
+  const url = 'http://localhost:3000/api/groups/group-1';
+
+  beforeEach(() => {
+    mockSession.isAdmin = true;
+    mockPrismaDb.group.findUnique.mockResolvedValue({ id: 'group-1', name: 'Test' });
+    mockPrismaDb.group.delete.mockResolvedValue({ id: 'group-1' });
+    mockPrismaDb.$executeRawUnsafe.mockResolvedValue(0);
+    process.env.DATABASE_URL = 'file:/data/santa.db';
+  });
+
+  it('returns 403 for an anonymous session', async () => {
+    delete mockSession.isAdmin;
+    const res = await deleteGroup(makeDeleteRequest(url), { params: { id: 'group-1' } } as any);
+    expect(res.status).toBe(403);
+    expect(mockPrismaDb.group.delete).not.toHaveBeenCalled();
+  });
+
+  // The sibling GET deliberately admits a participant to their OWN group. If that idiom
+  // were copied here, any of the family could delete the family's draw from the open
+  // internet. It must be a plain isAdmin check, no per-group fallback.
+  it('returns 403 for a logged-in participant OF THAT GROUP', async () => {
+    delete mockSession.isAdmin;
+    mockSession.isLoggedIn = true;
+    mockSession.personId = 'p-1';
+    mockSession.groupId = 'group-1'; // their own group
+    const res = await deleteGroup(makeDeleteRequest(url), { params: { id: 'group-1' } } as any);
+    expect(res.status).toBe(403);
+    expect(mockPrismaDb.group.delete).not.toHaveBeenCalled();
+  });
+
+  it('returns 404 when the group does not exist', async () => {
+    mockPrismaDb.group.findUnique.mockResolvedValue(null);
+    const res = await deleteGroup(makeDeleteRequest(url), { params: { id: 'nope' } } as any);
+    expect(res.status).toBe(404);
+    expect(mockPrismaDb.group.delete).not.toHaveBeenCalled();
+  });
+
+  it('snapshots the database BEFORE deleting, then deletes the group', async () => {
+    const res = await deleteGroup(makeDeleteRequest(url), { params: { id: 'group-1' } } as any);
+
+    expect(res.status).toBe(200);
+    const sql = mockPrismaDb.$executeRawUnsafe.mock.calls[0][0] as string;
+    expect(sql).toMatch(/^VACUUM INTO '\/data\/santa\.db\.predelete-group-\d{14}'$/);
+    expect(mockPrismaDb.group.delete).toHaveBeenCalledWith({ where: { id: 'group-1' } });
+    // The snapshot must be taken first - a snapshot after the cascade is worthless.
+    expect(mockPrismaDb.$executeRawUnsafe.mock.invocationCallOrder[0])
+      .toBeLessThan(mockPrismaDb.group.delete.mock.invocationCallOrder[0]);
+  });
+
+  // Fail CLOSED. The snapshot is the only rollback that exists for an irreversible
+  // cascade, so a snapshot that did not happen must stop the delete.
+  it('refuses to delete (503) when the snapshot fails', async () => {
+    mockPrismaDb.$executeRawUnsafe.mockRejectedValue(new Error('disk full'));
+    const res = await deleteGroup(makeDeleteRequest(url), { params: { id: 'group-1' } } as any);
+
+    expect(res.status).toBe(503);
+    expect((await res.json()).error).toMatch(/NOT deleted/i);
+    expect(mockPrismaDb.group.delete).not.toHaveBeenCalled();
+  });
+});
+
+// ===========================================================================
+// The safety net around clearing a SENT draw, and the session that outlives its row.
+// ===========================================================================
+describe('DELETE /api/assignments on a sent draw', () => {
+  const url = 'http://localhost:3000/api/assignments?groupId=group-1';
+
+  beforeEach(() => {
+    mockSession.isAdmin = true;
+    (getActiveYear as jest.Mock).mockResolvedValue(2026);
+    mockPrismaDb.$transaction.mockResolvedValue([]);
+    mockPrismaDb.$executeRawUnsafe.mockResolvedValue(0);
+    process.env.DATABASE_URL = 'file:/data/santa.db';
+  });
+
+  // This is the endpoint person-delete's 409 sends the organiser to, so it has to be
+  // the safe path - it wipes matches the family has already opened, with no undo.
+  it('snapshots the database before wiping a draw that was already sent', async () => {
+    (getRound as jest.Mock).mockResolvedValue({ id: 'round-1', status: 'sent', sentAt: new Date() });
+
+    const res = await deleteAssignments(makeDeleteRequest(url));
+
+    expect(res.status).toBe(200);
+    const sql = mockPrismaDb.$executeRawUnsafe.mock.calls[0][0] as string;
+    expect(sql).toMatch(/^VACUUM INTO '\/data\/santa\.db\.predelete-draw-\d{14}'$/);
+    expect(mockPrismaDb.$transaction).toHaveBeenCalled();
+  });
+
+  it('does NOT snapshot when the draw was never sent (nothing to lose)', async () => {
+    (getRound as jest.Mock).mockResolvedValue({ id: 'round-1', status: 'generated', sentAt: null });
+
+    const res = await deleteAssignments(makeDeleteRequest(url));
+
+    expect(res.status).toBe(200);
+    expect(mockPrismaDb.$executeRawUnsafe).not.toHaveBeenCalled();
+  });
+
+  it('refuses (503) to clear a sent draw when the snapshot fails', async () => {
+    (getRound as jest.Mock).mockResolvedValue({ id: 'round-1', status: 'sent', sentAt: new Date() });
+    mockPrismaDb.$executeRawUnsafe.mockRejectedValue(new Error('disk full'));
+
+    const res = await deleteAssignments(makeDeleteRequest(url));
+
+    expect(res.status).toBe(503);
+    expect(mockPrismaDb.$transaction).not.toHaveBeenCalled();
+  });
+});
+
+describe('GET /api/assignments returns the round independently of the rows', () => {
+  it('ships the round even when it holds zero assignments', async () => {
+    mockSession.isAdmin = true;
+    (getActiveYear as jest.Mock).mockResolvedValue(2026);
+    mockPrismaDb.assignment.findMany.mockResolvedValue([]);
+    (getRound as jest.Mock).mockResolvedValue({ id: 'round-1', status: 'sent', sentAt: new Date() });
+
+    const res = await getAssignments(makeGetRequest('http://localhost:3000/api/assignments?groupId=group-1'));
+    const json = await res.json();
+
+    // Without this the dashboard cannot tell "no draw yet" from "a sent draw was
+    // destroyed" - it showed a Generate button for both, and the API refused one.
+    expect(json.assignments).toEqual([]);
+    expect(json.round.status).toBe('sent');
+  });
+});
+
+describe('GET /api/auth/session when the person no longer exists', () => {
+  it('logs the participant out instead of leaving them on a blank page', async () => {
+    mockSession.isLoggedIn = true;
+    mockSession.personId = 'gone-1';
+    mockPrismaDb.person.findUnique.mockResolvedValue(null); // their row was deleted
+
+    const res = await getSessionInfo();
+    const json = await res.json();
+
+    expect(json.authenticated).toBe(false);
+    expect(json.isLoggedIn).toBe(false);
+    expect(mockSession.save).toHaveBeenCalled();
+  });
+
+  // isAdmin and isLoggedIn share ONE cookie, and the organiser is a participant in
+  // their own draw. A session.destroy() here would strip their admin rights the instant
+  // they deleted a group containing themselves, bouncing them out of the dashboard
+  // mid-operation. Clear only the participant half.
+  it('KEEPS admin rights when the deleted person was the admin themselves', async () => {
+    mockSession.isLoggedIn = true;
+    mockSession.personId = 'gone-1';
+    mockSession.isAdmin = true;
+    mockSession.adminEmail = 'chris@north.cx';
+    mockPrismaDb.person.findUnique.mockResolvedValue(null);
+
+    const res = await getSessionInfo();
+    const json = await res.json();
+
+    expect(json.authenticated).toBe(true); // still an admin
+    expect(json.isAdmin).toBe(true);
+    expect(json.isLoggedIn).toBe(false); // but no longer a participant
+    expect(mockSession.destroy).not.toHaveBeenCalled();
   });
 });

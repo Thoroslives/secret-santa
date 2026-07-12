@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { getSession } from "@/lib/session";
+import { snapshotOrRefuse } from "@/lib/db-snapshot";
 
 export const dynamic = 'force-dynamic';
 
@@ -158,6 +159,52 @@ export async function PATCH(
     return NextResponse.json({ group });
   } catch (error) {
     console.error("Error updating group:", error);
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+  }
+}
+
+// DELETE a group, and everything in it.
+//
+// The single most destructive endpoint in the app: one `group.delete()` cascades away
+// every person, wishlist, round, assignment, block, forced pin and suggestion in that
+// group. Verified against a copy of the live database (zero orphans across all seven
+// tables) because the test suite mocks Prisma and so cannot watch a real cascade fire.
+export async function DELETE(
+  request: NextRequest,
+  { params }: { params: { id: string } }
+) {
+  try {
+    const session = await getSession();
+
+    // Admin only, and deliberately NOT the `session.isAdmin ? groupId : session.groupId`
+    // idiom the GET above uses. That one intentionally admits a participant to their own
+    // group - reusing it here would let any family member delete the family's draw.
+    if (!session.isAdmin) {
+      return NextResponse.json({ error: "Admin authentication required" }, { status: 403 });
+    }
+
+    const groupId = params.id;
+
+    const group = await prisma.group.findUnique({ where: { id: groupId } });
+    if (!group) {
+      return NextResponse.json({ error: "Group not found" }, { status: 404 });
+    }
+
+    // Snapshot first, and fail closed. (There is no deploy where this legitimately fails
+    // but the delete should still proceed: SQLite must be able to write to that same
+    // directory, or the app could not be serving this request at all.)
+    const snapshot = await snapshotOrRefuse("group", "group was NOT deleted");
+    if (!snapshot.ok) return snapshot.refusal;
+
+    await prisma.group.delete({ where: { id: groupId } });
+
+    // The path goes to the log, not to the browser: it is where an operator looks for the
+    // rescue copy, and it has no business in a response body.
+    console.log(`Deleted group ${groupId} ("${group.name}"). Snapshot: ${snapshot.path}`);
+
+    return NextResponse.json({ success: true });
+  } catch (error) {
+    console.error("Error deleting group:", error);
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }

@@ -33,9 +33,14 @@ interface PendingConfirm {
 
 interface Assignment {
   id: string;
-  giver: { name: string };
-  receiver: { name: string; wishlistItems: Array<{ title: string; note?: string | null }> };
-  round?: { status: string };
+  giver: { id: string; name: string };
+  receiver: { id: string; name: string; wishlistItems: Array<{ title: string; note?: string | null }> };
+}
+
+interface Round {
+  id: string;
+  status: string;
+  sentAt?: string | null;
 }
 
 interface GroupBudget {
@@ -54,6 +59,7 @@ interface GroupSummary {
 export default function AdminDashboard() {
   const [people, setPeople] = useState<Person[]>([]);
   const [assignments, setAssignments] = useState<Assignment[]>([]);
+  const [round, setRound] = useState<Round | null>(null);
   const [newPersonName, setNewPersonName] = useState("");
   const [newPersonEmail, setNewPersonEmail] = useState("");
   const [loading, setLoading] = useState(true);
@@ -77,9 +83,17 @@ export default function AdminDashboard() {
   const [confirmError, setConfirmError] = useState("");
   const [resendingId, setResendingId] = useState<string | null>(null);
 
-  // Matches are only resendable once the draw has actually been sent. The status
-  // rides along on the assignments payload (the API already includes `round`).
-  const roundSent = assignments.some((a) => a.round?.status === "sent");
+  // Read from the ROUND, not from the rows. `assignments.some(...)` says "not sent" for
+  // a round that was sent and then had its rows destroyed, which is exactly the state
+  // that has to be recognisable.
+  const roundSent = round?.status === "sent";
+
+  // The draw went out and its rows are gone. Nothing can be shown to anyone, generate
+  // refuses a sent round, and until now the dashboard rendered a Generate button here
+  // that the API rejected - the dead end of 2026-07-13. Offer the honest way out.
+  const drawMissing = !!round && round.status !== "draft" && assignments.length === 0;
+
+  const sentOn = round?.sentAt ? new Date(round.sentAt).toLocaleDateString() : null;
 
   // Full shareable participant link. Uses NEXT_PUBLIC_APP_URL when set (e.g.
   // https://santa.north.cx), otherwise auto-detects the current site origin in
@@ -242,6 +256,7 @@ export default function AdminDashboard() {
 
       setPeople(peopleData.people || []);
       setAssignments(assignmentsData.assignments || []);
+      setRound(assignmentsData.round || null);
 
       if (groupData.group) {
         setBudget({
@@ -527,7 +542,7 @@ export default function AdminDashboard() {
       >
         Edit email
       </button>
-      {person.email && roundSent && (
+      {person.email && roundSent && !drawMissing && (
         <button
           type="button"
           onClick={() => handleResend(person)}
@@ -659,7 +674,18 @@ export default function AdminDashboard() {
   };
 
   const handleDeletePerson = async (id: string, name: string) => {
-    if (!confirm(`Are you sure you want to delete ${name}?`)) {
+    // Removing someone who is in the current draw breaks it (their giver loses a giftee,
+    // their giftee loses a giver), so the draw goes with them. Say so before it happens.
+    // On an already-SENT draw the server refuses outright - resetting the draw stays a
+    // separate, deliberate act rather than a side effect of removing one person.
+    const inDraw = assignments.some((a) => a.giver?.id === id || a.receiver?.id === id);
+    const message =
+      inDraw && !roundSent
+        ? `Delete ${name}?\n\nThey are in this year's draw, so the draw will be cleared and ` +
+          `you will need to generate again.`
+        : `Are you sure you want to delete ${name}?`;
+
+    if (!confirm(message)) {
       return;
     }
 
@@ -672,7 +698,10 @@ export default function AdminDashboard() {
       });
 
       if (!res.ok) {
-        setError("Failed to delete person");
+        // 409 = they are in a draw that has already been sent. Surface the server's own
+        // message, which tells the admin to reset the draw first.
+        const data = await res.json().catch(() => ({}));
+        setError(data.error || "Failed to delete person");
         return;
       }
 
@@ -862,7 +891,25 @@ export default function AdminDashboard() {
   };
 
   const handleDeleteAssignments = async () => {
-    if (!confirm("Are you sure you want to delete all assignments for this year?")) {
+    // Say what actually happens. This wipes the draw and puts the round back to draft -
+    // and on an ALREADY SENT draw that means everyone loses the match they were told
+    // about, and the next draw will pair them differently. The old confirm ("delete all
+    // assignments for this year?") read like a routine re-roll and never mentioned it.
+    // drawMissing is tested FIRST. It overlaps with roundSent (a stranded round is usually
+    // a SENT one whose rows were destroyed), and getting the order wrong would tell the
+    // organiser "everyone will lose the match they were given" about matches that do not
+    // exist - wrong copy on the exact state this whole change was written for.
+    const message = drawMissing
+      ? `Reset this draw?\n\nThe round is marked "${round!.status}"${sentOn ? ` (sent ${sentOn})` : ""} ` +
+        `but holds no matches, so nothing can be shown to anyone and a new draw is refused. ` +
+        `Resetting puts it back to draft so you can generate again.`
+      : roundSent
+        ? `Clear this year's draw?\n\nThe matches were already SENT${sentOn ? ` on ${sentOn}` : ""}. ` +
+          `Everyone who has opened their link will lose the match they were given, and a new ` +
+          `draw will pair them with someone else.\n\nA database snapshot is taken first. This cannot be undone in the app.`
+        : "Are you sure you want to delete all assignments for this year?";
+
+    if (!confirm(message)) {
       return;
     }
 
@@ -875,12 +922,62 @@ export default function AdminDashboard() {
       });
 
       if (!res.ok) {
-        setError("Failed to delete assignments");
+        const data = await res.json().catch(() => ({}));
+        setError(data.error || "Failed to delete assignments");
         return;
       }
 
-      setSuccessMessage("Deleted all assignments");
+      setSuccessMessage(drawMissing ? "Draw reset. You can generate again." : "Deleted all assignments");
       loadData(activeGroupId);
+    } catch (err) {
+      setError("An error occurred");
+    }
+  };
+
+  // Delete a group and everything in it. Irreversible: people, wishlists, every year of
+  // draw history. The confirm names what dies rather than asking "are you sure?", and the
+  // server takes a database snapshot before the cascade.
+  const handleDeleteGroup = async () => {
+    const group = groups.find((g) => g.id === activeGroupId);
+    if (!group) return;
+
+    if (
+      !confirm(
+        `Delete "${group.name}" permanently?\n\n` +
+          `This removes ${people.length} ${people.length === 1 ? "person" : "people"}, ` +
+          `their wishlists, and every year of draw history.\n\n` +
+          `This cannot be undone.`
+      )
+    ) {
+      return;
+    }
+
+    setError("");
+    setSuccessMessage("");
+
+    try {
+      const res = await fetch(`/api/groups/${activeGroupId}`, { method: "DELETE" });
+
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        setError(data.error || "Failed to delete the group");
+        return;
+      }
+
+      setSuccessMessage(`Deleted "${group.name}"`);
+
+      // Fall back to whatever is left, or to the empty state.
+      const remaining = groups.filter((g) => g.id !== activeGroupId);
+      setGroups(remaining);
+      if (remaining.length > 0) {
+        setActiveGroupId(remaining[0].id);
+        loadData(remaining[0].id);
+      } else {
+        setActiveGroupId("");
+        setPeople([]);
+        setAssignments([]);
+        setRound(null);
+      }
     } catch (err) {
       setError("An error occurred");
     }
@@ -1298,7 +1395,29 @@ export default function AdminDashboard() {
                   {people.length} people registered
                   {assignments.length > 0 && ` • ${assignments.length} assignments created`}
                 </p>
-                {assignments.length === 0 ? (
+                {drawMissing ? (
+                  // The round says a draw exists (it was even sent) but the rows are gone,
+                  // so there is nothing to show anyone and generate refuses a sent round.
+                  // Offering "Generate" here is what stranded the live group: the button
+                  // rendered, the API said no, and there was no way out of the UI. Offer
+                  // the reset instead, and say plainly why it is being offered.
+                  <>
+                    <div
+                      className="rounded-sm border border-danger/40 bg-danger/10 p-3 text-sm text-ink"
+                      role="status"
+                    >
+                      This draw is marked <strong>{round?.status}</strong>
+                      {sentOn ? ` (sent ${sentOn})` : ""} but has no matches in it, so nothing can
+                      be shown to anyone and a new draw is refused. Reset it to draw again.
+                    </div>
+                    <button
+                      onClick={handleDeleteAssignments}
+                      className="w-full rounded-sm border border-danger/40 py-2 font-semibold text-danger transition-colors hover:bg-danger/10"
+                    >
+                      Reset draw
+                    </button>
+                  </>
+                ) : assignments.length === 0 ? (
                   <button
                     onClick={handleGenerateAssignments}
                     disabled={people.length < 3}
@@ -1322,7 +1441,7 @@ export default function AdminDashboard() {
                     </button>
                   </>
                 )}
-                {people.length < 3 && (
+                {!drawMissing && people.length < 3 && (
                   <p className="text-sm text-danger">Need at least 3 people to generate assignments</p>
                 )}
                 <div className="mt-4 border-t border-border pt-4">
@@ -1359,6 +1478,27 @@ export default function AdminDashboard() {
                 )}
               </div>
             </div>
+
+            {/* Danger zone. Deleting a group is the one irreversible thing the admin can
+                do here, so it lives on its own, below everything else, and the confirm
+                names what dies rather than asking "are you sure?". The server takes a
+                database snapshot before the cascade. */}
+            {activeGroupId && (
+              <div className="rounded-md border border-danger/40 bg-surface p-6 shadow-elev-1">
+                <h2 className="mb-1 text-xl font-semibold text-ink-strong">Danger zone</h2>
+                <p className="mb-4 text-sm text-ink-muted">
+                  Deleting this draw removes its {people.length}{" "}
+                  {people.length === 1 ? "person" : "people"}, their wishlists, and every year of
+                  history. There is no undo.
+                </p>
+                <button
+                  onClick={handleDeleteGroup}
+                  className="w-full rounded-sm border border-danger/40 py-2 font-semibold text-danger transition-colors hover:bg-danger/10"
+                >
+                  Delete this draw
+                </button>
+              </div>
+            )}
 
             {/* Group Settings */}
             <div className="rounded-md border border-border bg-surface p-6 shadow-elev-1">

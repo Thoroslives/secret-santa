@@ -3,6 +3,7 @@ import { prisma } from "@/lib/db";
 import { getSession } from "@/lib/session";
 import { generatePersonalLinkToken, isValidEmail, normalizeEmail } from "@/lib/utils";
 import { findEmailHolders, linkAcknowledged, EmailHolder } from "@/lib/people";
+import { getRound, RESET_TO_DRAFT } from "@/lib/rounds";
 
 // Prisma's unique-constraint violation. Matched on the code rather than with
 // `instanceof PrismaClientKnownRequestError`, because that class only exists on the
@@ -215,7 +216,33 @@ export async function PATCH(
   }
 }
 
-// DELETE a person (admin only)
+// Thrown inside the delete transaction when a concurrent send flips the round to
+// `sent` after we classified it. Rolls the whole transaction back.
+class RoundSentDuringDelete extends Error {}
+
+// One remedy, one wording. The organiser is pointed at the deliberate "clear the draw"
+// action rather than having it happen as a side effect of removing one person.
+const SENT_DRAW_REFUSAL =
+  "This year's matches have already been sent, and this person is in the draw. " +
+  "Reset the draw first, then remove them and draw again.";
+
+// DELETE a person (admin only).
+//
+// Deleting a person cascades their Assignment rows away (they are the giver on one
+// and the receiver on another). That is what stranded the live group on 2026-07-13:
+// the rows vanished, `Round.status` stayed `sent`, and generate refuses a `sent`
+// round - a dead end with no way out of the UI. So the round has to be kept honest
+// here. Three cases, and which one applies turns on whether this person is ACTUALLY
+// part of the current draw:
+//
+//   1. Not in the active draw  -> just delete them. The draw survives their removal
+//      intact, so touching it would destroy a perfectly good (possibly already sent)
+//      draw for nothing.
+//   2. In a draw already SENT  -> 409. Their removal would tear a hole in matches the
+//      family has already opened. Resetting the draw stays a deliberate, separate act.
+//   3. In a draw never sent    -> the permutation is genuinely broken by their removal
+//      (their giver loses a giftee, their giftee loses a giver) and nothing has been
+//      communicated, so the draw goes with them and the round returns to `draft`.
 export async function DELETE(
   request: NextRequest,
   { params }: { params: { id: string } }
@@ -229,14 +256,62 @@ export async function DELETE(
 
     const { id } = params;
 
-    const person = await prisma.person.findUnique({ where: { id } });
+    const person = await prisma.person.findUnique({
+      where: { id },
+      include: { group: { select: { year: true } } },
+    });
     if (!person) {
       return NextResponse.json({ error: "Person not found" }, { status: 404 });
     }
 
-    await prisma.person.delete({
-      where: { id },
-    });
+    const round = await getRound(person.groupId, person.group.year);
+
+    // BOTH cascade edges count. Someone who only ever receives still has a row
+    // (their giver -> them); deleting them tears that giver's match out of the draw
+    // just as surely. A giver-only check would wave them through as "not involved".
+    const inActiveDraw = round
+      ? (await prisma.assignment.count({
+          where: { roundId: round.id, OR: [{ giverId: id }, { receiverId: id }] },
+        })) > 0
+      : false;
+
+    // Case 2.
+    if (inActiveDraw && round?.status === "sent") {
+      return NextResponse.json({ error: SENT_DRAW_REFUSAL }, { status: 409 });
+    }
+
+    // Case 1.
+    if (!inActiveDraw || !round) {
+      await prisma.person.delete({ where: { id } });
+      return NextResponse.json({ success: true });
+    }
+
+    // Case 3. An INTERACTIVE transaction, because the round has to be compare-and-swapped:
+    // the status was read outside it, and POST /api/rounds/send awaits one SMTP call per
+    // person, so it can flip the round to `sent` inside that window. If the swap loses, the
+    // whole thing rolls back - deleting the assignments regardless would leave rows gone
+    // with the status still `sent`, which is the exact stranded state this route now fixes.
+    //
+    // Everything is scoped by roundId, never (groupId, year): a concurrent rollover moves
+    // the group's year pointer, and a year-scoped write would then shred the wrong round.
+    try {
+      await prisma.$transaction(async (tx) => {
+        const swapped = await tx.round.updateMany({
+          where: { id: round.id, status: { in: ["draft", "generated"] } },
+          data: RESET_TO_DRAFT,
+        });
+        if (swapped.count === 0) {
+          throw new RoundSentDuringDelete();
+        }
+        await tx.assignment.deleteMany({ where: { roundId: round.id } });
+        await tx.person.delete({ where: { id } });
+      });
+    } catch (error) {
+      if (error instanceof RoundSentDuringDelete) {
+        return NextResponse.json({ error: SENT_DRAW_REFUSAL }, { status: 409 });
+      }
+      throw error;
+    }
 
     return NextResponse.json({ success: true });
   } catch (error) {
