@@ -8,16 +8,23 @@ import { isOidcConfigured, getOidcConfig, buildAdminLoginUrl } from "@/lib/oidc"
 // /admin?error=oidc_unavailable redirect, since none of them ("OIDC isn't
 // configured", "the IdP is unreachable", "OIDC_REDIRECT_URI is unset") are
 // actionable for the browser beyond "OIDC login isn't available right now".
+// Relative redirect (see app/p/[token]/route.ts): the browser resolves it
+// against its own origin, so it survives the reverse proxy - an absolute URL
+// from request.url would leak the app's internal bind host (e.g. 0.0.0.0:3000).
+function relRedirect(path: string): NextResponse {
+  return new NextResponse(null, { status: 307, headers: { Location: path } });
+}
+
 export async function GET(request: NextRequest) {
   if (!isOidcConfigured()) {
-    return NextResponse.redirect(new URL("/admin?error=oidc_unavailable", request.url));
+    return relRedirect("/admin?error=oidc_unavailable");
   }
 
   const config = await getOidcConfig();
   if (!config) {
     // Unreachable/misconfigured IdP - getOidcConfig() already logged the
     // underlying cause, nothing more to add here.
-    return NextResponse.redirect(new URL("/admin?error=oidc_unavailable", request.url));
+    return relRedirect("/admin?error=oidc_unavailable");
   }
 
   const session = await getSession();
@@ -31,7 +38,7 @@ export async function GET(request: NextRequest) {
     url = await buildAdminLoginUrl(config, session);
   } catch (error) {
     console.error("Failed to build admin OIDC login URL:", error);
-    return NextResponse.redirect(new URL("/admin?error=oidc_unavailable", request.url));
+    return relRedirect("/admin?error=oidc_unavailable");
   }
 
   // Cookie-on-redirect: same pattern as app/p/[token]/route.ts - getSession()

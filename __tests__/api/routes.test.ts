@@ -154,6 +154,10 @@ jest.mock('@/lib/oidc', () => ({
   getOidcConfig: jest.fn(),
   buildAdminLoginUrl: jest.fn(),
   completeAdminLogin: jest.fn(),
+  // Identity by default (returns the request URL) so existing tests are
+  // unaffected; the redirect_uri regression test overrides it once. The real
+  // impl (force origin+path to OIDC_REDIRECT_URI) is unit-tested in oidc.test.ts.
+  oidcCallbackUrl: jest.fn((u: string) => new URL(u)),
 }));
 
 // ---------------------------------------------------------------------------
@@ -163,7 +167,7 @@ import { ensureRound, getActiveYear, getPreviousYearExclusions } from '@/lib/rou
 import { generateGroupInviteCode, generatePersonalLinkToken, validateWishlistItems } from '@/lib/utils';
 import { sendLoginLinkEmail, sendMatchReadyEmail } from '@/lib/email';
 import { generateDraw } from '@/lib/secret-santa';
-import { isOidcConfigured, getOidcConfig, buildAdminLoginUrl, completeAdminLogin } from '@/lib/oidc';
+import { isOidcConfigured, getOidcConfig, buildAdminLoginUrl, completeAdminLogin, oidcCallbackUrl } from '@/lib/oidc';
 
 import { POST as createGroup } from '@/app/api/groups/create/route';
 import { GET as getGroup, PATCH as patchGroup } from '@/app/api/groups/[id]/route';
@@ -2856,6 +2860,18 @@ describe('GET /api/admin/oidc/login', () => {
     expect(res.status).toBe(307);
     expect(res.headers.get('location')).toBe(builtUrl.href);
   });
+
+  it('redirects host-independently (relative Location) - never leaks the internal bind host behind a reverse proxy', async () => {
+    (isOidcConfigured as jest.Mock).mockReturnValue(false);
+
+    // Behind the proxy the app sees its own bind host (0.0.0.0:3000), not the
+    // public santa.north.cx. The redirect must not carry that unreachable host.
+    const res = await oidcLogin(makeGetRequest('http://0.0.0.0:3000/api/admin/oidc/login'));
+
+    expect(res.status).toBe(307);
+    expect(res.headers.get('location')).toBe('/admin?error=oidc_unavailable');
+    expect(res.headers.get('location')).not.toContain('0.0.0.0');
+  });
 });
 
 // ===========================================================================
@@ -2956,6 +2972,49 @@ describe('GET /api/admin/oidc/callback', () => {
     expect(mockSession.oidcVerifier).toBe('verifier-abc');
     expect(mockSession.oidcState).toBe('state-xyz');
     expect(mockSession.save).not.toHaveBeenCalled();
+  });
+
+  it('redirects host-independently (relative Location) on the error path - never leaks the internal bind host', async () => {
+    primePendingFlow();
+    (getOidcConfig as jest.Mock).mockResolvedValue({ fake: 'config' });
+    (completeAdminLogin as jest.Mock).mockRejectedValue(new Error('exchange failed'));
+
+    const res = await oidcCallback(
+      makeGetRequest('http://0.0.0.0:3000/api/admin/oidc/callback?code=abc123&state=state-xyz')
+    );
+
+    expect(res.status).toBe(307);
+    expect(res.headers.get('location')).toBe('/admin?error=oidc_failed');
+    expect(res.headers.get('location')).not.toContain('0.0.0.0');
+  });
+
+  it('hands completeAdminLogin the oidcCallbackUrl (registered redirect_uri), not the proxy request host', async () => {
+    process.env.ADMIN_OIDC_ALLOWED_EMAILS = ALLOWED_EMAIL;
+    primePendingFlow();
+    (getOidcConfig as jest.Mock).mockResolvedValue({ fake: 'config' });
+    // The real oidcCallbackUrl forces origin+path to OIDC_REDIRECT_URI; the
+    // route must pass ITS result to the exchange (openid-client derives the
+    // token redirect_uri from it), never new URL(request.url) = the 0.0.0.0 host.
+    const publicUrl = new URL(
+      'https://santa.example.com/api/admin/oidc/callback?code=abc123&state=state-xyz'
+    );
+    (oidcCallbackUrl as jest.Mock).mockReturnValueOnce(publicUrl);
+    (completeAdminLogin as jest.Mock).mockResolvedValue({
+      sub: 's',
+      email: ALLOWED_EMAIL,
+      email_verified: true,
+    });
+
+    await oidcCallback(
+      makeGetRequest('http://0.0.0.0:3000/api/admin/oidc/callback?code=abc123&state=state-xyz')
+    );
+
+    expect(oidcCallbackUrl).toHaveBeenCalledWith(
+      'http://0.0.0.0:3000/api/admin/oidc/callback?code=abc123&state=state-xyz'
+    );
+    const passedUrl = (completeAdminLogin as jest.Mock).mock.calls[0][1];
+    expect(passedUrl.href).toBe(publicUrl.href);
+    expect(passedUrl.href).not.toContain('0.0.0.0');
   });
 
   it('redirects to /admin?error=not_authorized and does NOT set isAdmin when the email is verified but not allow-listed', async () => {

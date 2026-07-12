@@ -19,6 +19,7 @@ import {
   getOidcConfig,
   buildAdminLoginUrl,
   completeAdminLogin,
+  oidcCallbackUrl,
 } from '@/lib/oidc';
 
 // eslint-disable-next-line @typescript-eslint/no-var-requires
@@ -315,5 +316,33 @@ describe('completeAdminLogin', () => {
 
     expect(session.oidcVerifier).toBe('v');
     expect(session.oidcState).toBe('s');
+  });
+});
+
+describe('oidcCallbackUrl', () => {
+  it('forces origin + path to OIDC_REDIRECT_URI while keeping the incoming query (proxy hands the app the internal 0.0.0.0 host)', () => {
+    process.env.OIDC_REDIRECT_URI = 'https://santa.example.com/api/admin/oidc/callback';
+
+    const url = oidcCallbackUrl(
+      'http://0.0.0.0:3000/api/admin/oidc/callback?code=abc123&state=state-xyz&iss=https%3A%2F%2Fidp'
+    );
+
+    // origin+path == the registered redirect_uri (what openid-client derives
+    // the token-request redirect_uri from) - never the 0.0.0.0 bind host.
+    expect(url.origin).toBe('https://santa.example.com');
+    expect(url.pathname).toBe('/api/admin/oidc/callback');
+    expect(url.href).not.toContain('0.0.0.0');
+    // the authorization-response params are preserved for the exchange
+    expect(url.searchParams.get('code')).toBe('abc123');
+    expect(url.searchParams.get('state')).toBe('state-xyz');
+    expect(url.searchParams.get('iss')).toBe('https://idp');
+  });
+
+  it('returns the incoming URL unchanged when OIDC_REDIRECT_URI is unset (dev / no proxy)', () => {
+    const url = oidcCallbackUrl('http://localhost:3000/api/admin/oidc/callback?code=abc&state=xyz');
+
+    expect(url.origin).toBe('http://localhost:3000');
+    expect(url.searchParams.get('code')).toBe('abc');
+    expect(url.searchParams.get('state')).toBe('xyz');
   });
 });

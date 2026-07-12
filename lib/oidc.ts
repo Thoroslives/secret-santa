@@ -121,6 +121,30 @@ export async function buildAdminLoginUrl(
 }
 
 /**
+ * The URL to hand openid-client for the callback token exchange. In v6 the
+ * token-request redirect_uri is DERIVED from this URL's origin + pathname, so
+ * it must equal the registered OIDC_REDIRECT_URI - NOT request.url, whose host
+ * behind a reverse proxy is the app's internal bind address (e.g. 0.0.0.0:3000)
+ * and would make the derived redirect_uri fail the authorization server's
+ * exact-match check (invalid_grant), even with correct client credentials.
+ *
+ * We keep the incoming query (code / state / iss) and force origin + path to
+ * OIDC_REDIRECT_URI - the exact value buildAdminLoginUrl sent in the auth
+ * request - so both legs present the identical redirect_uri. If OIDC_REDIRECT_URI
+ * is unset (dev / no proxy) the incoming URL is used unchanged.
+ */
+export function oidcCallbackUrl(requestUrl: string): URL {
+  const incoming = new URL(requestUrl);
+  const registered = process.env.OIDC_REDIRECT_URI;
+  if (!registered) {
+    return incoming;
+  }
+  const url = new URL(registered);
+  url.search = incoming.search;
+  return url;
+}
+
+/**
  * Complete the callback leg of an admin OIDC login: exchange the
  * authorization code for tokens (validating the PKCE verifier and state
  * against what buildAdminLoginUrl stashed on the session) and return the
