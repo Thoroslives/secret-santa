@@ -96,7 +96,7 @@ export async function POST(request: NextRequest) {
 
 // GET /api/suggestions?mine=1 - only the caller's own suggestions, for the
 // active round. Never returns another person's suggestions.
-export async function GET() {
+export async function GET(_request: NextRequest) {
   try {
     const session = await getSession();
     if (!session.isLoggedIn || !session.personId || !session.groupId) {
