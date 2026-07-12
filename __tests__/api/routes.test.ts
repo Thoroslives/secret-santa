@@ -118,6 +118,7 @@ jest.mock('@/lib/utils', () => ({
 jest.mock('@/lib/email', () => ({
   sendLoginLinkEmail: jest.fn().mockResolvedValue(true),
   sendMatchReadyEmail: jest.fn().mockResolvedValue(true),
+  sendAllDrawsLinkEmail: jest.fn().mockResolvedValue(true),
 }));
 
 // ---------------------------------------------------------------------------
@@ -174,7 +175,7 @@ jest.mock('@/lib/draws', () => ({
 // ---------------------------------------------------------------------------
 import { ensureRound, getActiveYear, getPreviousYearExclusions } from '@/lib/rounds';
 import { generateGroupInviteCode, generatePersonalLinkToken, validateWishlistItems } from '@/lib/utils';
-import { sendLoginLinkEmail, sendMatchReadyEmail } from '@/lib/email';
+import { sendLoginLinkEmail, sendMatchReadyEmail, sendAllDrawsLinkEmail } from '@/lib/email';
 import { generateDraw } from '@/lib/secret-santa';
 import { isOidcConfigured, getOidcConfig, buildAdminLoginUrl, completeAdminLogin, oidcCallbackUrl } from '@/lib/oidc';
 
@@ -737,35 +738,34 @@ describe('POST /api/auth/email-link', () => {
     );
   });
 
-  it('emails a separate link for each group when one address belongs to more than one group', async () => {
+  it('sends ONE all-draws email (not one per group) when an address is in 2+ draws', async () => {
     mockPrismaDb.person.findMany.mockResolvedValue([
-      personRow({ id: 'p-a', groupId: 'group-a', personalLinkToken: 'tok_a', group: { id: 'group-a', name: 'Family A' } }),
-      personRow({ id: 'p-b', groupId: 'group-b', personalLinkToken: 'tok_b', group: { id: 'group-b', name: 'Family B' } }),
+      personRow({ id: 'p-a', groupId: 'group-a', personalLinkToken: 'tok_a', group: { id: 'group-a', name: 'Family A', year: 2026 } }),
+      personRow({ id: 'p-b', groupId: 'group-b', personalLinkToken: 'tok_b', group: { id: 'group-b', name: 'Family B', year: 2025 } }),
     ]);
 
     const res = await emailLink(post({ email: 'alice@example.com' }, '10.0.4.1'));
     expect(res.status).toBe(200);
-    const json = await res.json();
-    expect(json.message).toBe('If this email is registered, a login link has been sent.');
+    expect((await res.json()).message).toBe('If this email is registered, a login link has been sent.');
 
-    expect(sendLoginLinkEmail).toHaveBeenCalledTimes(2);
-    expect(sendLoginLinkEmail).toHaveBeenCalledWith('alice@example.com', 'Alice', 'Family A', expect.stringContaining('/p/tok_a'), undefined, undefined);
-    expect(sendLoginLinkEmail).toHaveBeenCalledWith('alice@example.com', 'Alice', 'Family B', expect.stringContaining('/p/tok_b'), undefined, undefined);
+    expect(sendAllDrawsLinkEmail).toHaveBeenCalledTimes(1);
+    expect(sendLoginLinkEmail).not.toHaveBeenCalled();
+    const [to, , groupNames, link] = (sendAllDrawsLinkEmail as jest.Mock).mock.calls[0];
+    expect(to).toBe('alice@example.com');
+    expect(groupNames).toEqual(expect.arrayContaining(['Family A', 'Family B']));
+    expect(link).toContain('/p/tok_a'); // most-recent group's token (2026 > 2025)
   });
 
-  it('returns the generic message and still attempts the other sends when one send fails (no enumeration)', async () => {
+  it('returns the generic message even if the single all-draws send fails (no enumeration)', async () => {
     mockPrismaDb.person.findMany.mockResolvedValue([
-      personRow({ id: 'p-a', groupId: 'group-a', personalLinkToken: 'tok_a', group: { id: 'group-a', name: 'Family A' } }),
-      personRow({ id: 'p-b', groupId: 'group-b', personalLinkToken: 'tok_b', group: { id: 'group-b', name: 'Family B' } }),
+      personRow({ id: 'p-a', groupId: 'group-a', personalLinkToken: 'tok_a', group: { id: 'group-a', name: 'Family A', year: 2026 } }),
+      personRow({ id: 'p-b', groupId: 'group-b', personalLinkToken: 'tok_b', group: { id: 'group-b', name: 'Family B', year: 2025 } }),
     ]);
-    (sendLoginLinkEmail as jest.Mock).mockRejectedValueOnce(new Error('SMTP down'));
+    (sendAllDrawsLinkEmail as jest.Mock).mockRejectedValueOnce(new Error('SMTP down'));
 
     const res = await emailLink(post({ email: 'alice@example.com' }, '10.0.5.1'));
     expect(res.status).toBe(200);
-    const json = await res.json();
-    expect(json.message).toBe('If this email is registered, a login link has been sent.');
-    // one send threw, the other was still attempted
-    expect(sendLoginLinkEmail).toHaveBeenCalledTimes(2);
+    expect((await res.json()).message).toBe('If this email is registered, a login link has been sent.');
   });
 
   it('returns 429 once the per-IP rate limit is exceeded', async () => {

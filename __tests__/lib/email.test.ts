@@ -1,4 +1,4 @@
-import { sendLoginLinkEmail, sendMatchReadyEmail, testEmailConfig } from '@/lib/email';
+import { sendLoginLinkEmail, sendMatchReadyEmail, sendAllDrawsLinkEmail, testEmailConfig } from '@/lib/email';
 
 // Mock nodemailer
 jest.mock('nodemailer', () => {
@@ -210,5 +210,29 @@ describe('testEmailConfig', () => {
     verifyMock.mockRejectedValueOnce(new Error('Connection refused'));
     const result = await testEmailConfig();
     expect(result).toBe(false);
+  });
+});
+
+describe('sendAllDrawsLinkEmail', () => {
+  const lastMail = () => nodemailer.default.createTransport().sendMail.mock.calls.at(-1)[0];
+  beforeEach(() => {
+    jest.clearAllMocks();
+    process.env.EMAIL_FROM = 'Santa <santa@test.com>';
+  });
+  afterEach(() => { delete process.env.EMAIL_FROM; });
+
+  it('sends one email listing every draw name with a single link', async () => {
+    const ok = await sendAllDrawsLinkEmail(
+      'boss@example.com', 'Chris',
+      ['Family Draw', 'Partner Draw'],
+      'https://example.com/p/tok-1',
+    );
+    expect(ok).toBe(true);
+    const m = lastMail();
+    expect(m.to).toBe('boss@example.com');
+    expect(m.html).toContain('Family Draw');
+    expect(m.html).toContain('Partner Draw');
+    expect(m.html).toContain('https://example.com/p/tok-1');
+    expect(m.html).not.toMatch(/expire/i);
   });
 });

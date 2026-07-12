@@ -228,6 +228,38 @@ export async function sendLoginLinkEmail(
   );
 }
 
+// Send ONE sign-in link that opens ALL of a person's draws (used when an email
+// address is in more than one group). Lists the draw names so the recipient
+// knows what the single link covers. Deliberately carries no per-group organiser
+// name or personal message, since it spans groups. Any of the person's tokens
+// resolves the full set on landing, so the caller passes just one link.
+export async function sendAllDrawsLinkEmail(
+  email: string,
+  name: string,
+  groupNames: string[],
+  link: string,
+): Promise<boolean> {
+  const count = groupNames.length;
+  const list = groupNames.join(", ");
+  return sendThemedEmail(
+    email,
+    "Your Secret Santa sign-in link",
+    {
+      preheader: `One link for all ${count} of your Secret Santa draws.`,
+      heading: "Your sign-in link",
+      intro: `Hi ${name}, here is your personal link. It opens all ${count} of your draws: ${list}.`,
+      ctaLabel: "Open my draws",
+      link,
+      bodyAfter:
+        "It is yours to keep. Bookmark it and use it any time. Once you are in, switch between your draws with the tabs at the top. If you didn't ask for this, you can safely ignore this email.",
+      groupName: "your Secret Santa draws",
+      organiserName: null,
+      personalMessage: null,
+    },
+    "Failed to send all-draws login link email:"
+  );
+}
+
 // Send the "your match is ready" notification. Deliberately NEVER names the
 // drawee - the drawee is not even passed in - it only says the match is ready
 // and links to the person's own /p/<token> page, where they see who they drew
