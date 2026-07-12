@@ -181,8 +181,8 @@ import { POST as updateWishlist } from '@/app/api/wishlist/route';
 import { GET as getAssignments, DELETE as deleteAssignments } from '@/app/api/assignments/route';
 import { GET as getSessionInfo } from '@/app/api/auth/session/route';
 import { POST as adminAuth } from '@/app/api/admin/auth/route';
-import { GET as oidcLogin } from '@/app/api/admin/oidc/login/route';
-import { GET as oidcCallback } from '@/app/api/admin/oidc/callback/route';
+import { GET as oidcLogin, dynamic as oidcLoginDynamic } from '@/app/api/admin/oidc/login/route';
+import { GET as oidcCallback, dynamic as oidcCallbackDynamic } from '@/app/api/admin/oidc/callback/route';
 import { POST as createBlock, DELETE as deleteBlock } from '@/app/api/blocks/route';
 import { POST as createPin, DELETE as deletePin } from '@/app/api/pins/route';
 import { POST as generateRound } from '@/app/api/rounds/generate/route';
@@ -2859,6 +2859,16 @@ describe('GET /api/admin/oidc/login', () => {
 
     expect(res.status).toBe(307);
     expect(res.headers.get('location')).toBe(builtUrl.href);
+  });
+
+  // Regression: the login route branches on runtime env (isOidcConfigured).
+  // Without force-dynamic, Next statically prerenders the isOidcConfigured()
+  // === false path at build time (no OIDC env in CI) and serves that cached
+  // oidc_unavailable redirect forever, so OIDC login can never work from a
+  // CI-built image. Both OIDC routes must stay force-dynamic.
+  it('both OIDC routes are force-dynamic (never statically prerendered)', () => {
+    expect(oidcLoginDynamic).toBe('force-dynamic');
+    expect(oidcCallbackDynamic).toBe('force-dynamic');
   });
 
   it('redirects host-independently (relative Location) - never leaks the internal bind host behind a reverse proxy', async () => {

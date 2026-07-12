@@ -3,6 +3,12 @@ import { getSession } from "@/lib/session";
 import { getOidcConfig, completeAdminLogin, oidcCallbackUrl } from "@/lib/oidc";
 import { isAllowedAdminEmail } from "@/lib/adminAuth";
 
+// Force dynamic: this handler branches on runtime env (getOidcConfig reads
+// process.env.OIDC_*) and must never be statically prerendered. It already
+// reads request.url so Next treats it as dynamic, but declare it explicitly so
+// a future refactor can't accidentally make it static (see the login route).
+export const dynamic = "force-dynamic";
+
 // GET /api/admin/oidc/callback - completes the admin OIDC authorization-code
 // exchange. THE auth boundary: session.isAdmin is set in exactly one place
 // below, and only after a successful exchange AND isAllowedAdminEmail(email,

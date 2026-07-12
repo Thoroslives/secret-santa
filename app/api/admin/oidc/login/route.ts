@@ -2,6 +2,16 @@ import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/session";
 import { isOidcConfigured, getOidcConfig, buildAdminLoginUrl } from "@/lib/oidc";
 
+// MUST be dynamic. This handler branches on runtime env (isOidcConfigured reads
+// process.env.OIDC_*). If left static, Next prerenders the isOidcConfigured()
+// === false path at BUILD time (no OIDC env in CI) and serves that cached
+// "oidc_unavailable" redirect forever, ignoring the real runtime env - i.e. OIDC
+// login can never work from a build made without OIDC env present. The early
+// isOidcConfigured() return short-circuits before any dynamic API, so Next would
+// otherwise statically optimize this route (unlike the callback, which reads
+// request.url and is dynamic already).
+export const dynamic = "force-dynamic";
+
 // GET /api/admin/oidc/login - starts the admin OIDC authorization-code + PKCE
 // flow (Part B, the OIDC way in; break-glass in Part A is the other). Never
 // 500s to the browser - every failure mode here collapses to the same fixed
