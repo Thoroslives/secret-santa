@@ -1516,6 +1516,32 @@ describe('POST /api/auth/switch', () => {
 });
 
 // ===========================================================================
+// GET /api/auth/session draws list - the switcher's source of tabs.
+// ===========================================================================
+describe('GET /api/auth/session draws list', () => {
+  it('returns the live same-email draws for a logged-in participant', async () => {
+    mockSession.isLoggedIn = true;
+    mockSession.personId = 'p-1';
+    (getActiveDrawsForPerson as jest.Mock).mockResolvedValue([
+      { personId: 'p-1', personName: 'Chris', groupId: 'g-1', groupName: 'Family Draw' },
+      { personId: 'p-2', personName: 'Chris', groupId: 'g-2', groupName: 'Partner Draw' },
+    ]);
+    const json = await (await getSessionInfo()).json();
+    expect(json.draws).toHaveLength(2);
+    expect(json.draws[1]).toEqual({ personId: 'p-2', personName: 'Chris', groupId: 'g-2', groupName: 'Partner Draw' });
+    expect(getActiveDrawsForPerson).toHaveBeenCalledWith('p-1');
+  });
+
+  it('returns empty draws for an admin session (no participant lookup)', async () => {
+    mockSession.isAdmin = true;
+    mockSession.adminEmail = 'admin@example.com';
+    const json = await (await getSessionInfo()).json();
+    expect(json.draws).toEqual([]);
+    expect(getActiveDrawsForPerson).not.toHaveBeenCalled();
+  });
+});
+
+// ===========================================================================
 // 15. POST /api/admin/auth - break-glass super-admin login (P4). No groupId
 // in the request: a successful admin session owns every group. Drives the
 // REAL lib/adminAuth.verifyBreakGlass (env-driven, no DB/bcrypt) rather than
