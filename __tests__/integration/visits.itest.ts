@@ -26,6 +26,7 @@
  */
 import { prisma } from '@/lib/db';
 import { GET as getPeople } from '@/app/api/people/route';
+import { GET as personData } from '@/app/api/auth/person-data/route';
 import { recordVisit } from '@/lib/visits';
 import { NextRequest } from 'next/server';
 
@@ -107,4 +108,39 @@ it('records one visit per half hour, even when ten requests land at once', async
 
   const count = await prisma.visit.count({ where: { personId: bobId, year: 2026 } });
   expect(count).toBe(1);
+});
+
+// THE FULL WRITE PATH, end to end: the real person-data handler, the real getActiveYear, the
+// real Prisma client, a real database. The mocked suite can only prove recordVisit was CALLED
+// with the right arguments; nothing there proves a row actually lands, because the mock will
+// happily "insert" into nothing. This is also the only test that proves the debounce holds
+// across two separate HTTP requests rather than two calls to the lib.
+//
+// Declared last on purpose: it adds a visit for Alice, and the year-scoping assertions above
+// depend on her seeded counts.
+it('writes a real row when a participant loads their wishlist, and not a second one', async () => {
+  // Become the participant. The session mock reads this object live.
+  mockSession.isAdmin = false;
+  mockSession.isLoggedIn = true;
+  mockSession.personId = aliceId;
+  mockSession.groupId = groupId;
+
+  const before = await prisma.visit.count({ where: { personId: aliceId } });
+
+  const first = await personData();
+  expect(first.status).toBe(200);
+  expect(await prisma.visit.count({ where: { personId: aliceId } })).toBe(before + 1);
+
+  // The row is attributed to the group's ACTIVE year, read through the real getActiveYear.
+  const latest = await prisma.visit.findFirst({
+    where: { personId: aliceId },
+    orderBy: { createdAt: 'desc' },
+  });
+  expect(latest!.year).toBe(2026);
+
+  // Reload inside the same half hour: the unique key throws the second one away. This is the
+  // refresh case, which is the whole reason "12 visits" can be trusted to mean 12 sittings.
+  const second = await personData();
+  expect(second.status).toBe(200);
+  expect(await prisma.visit.count({ where: { personId: aliceId } })).toBe(before + 1);
 });
