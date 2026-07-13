@@ -20,6 +20,10 @@ const mockPrismaDb = {
     updateMany: jest.fn(),
     delete: jest.fn(),
   },
+  visit: {
+    create: jest.fn(),
+    findMany: jest.fn(),
+  },
   wishlistItem: {
     deleteMany: jest.fn(),
     create: jest.fn(),
@@ -3529,6 +3533,34 @@ describe('GET /api/auth/person-data', () => {
   it('returns 401 when not logged in', async () => {
     delete mockSession.isLoggedIn;
     expect((await personData()).status).toBe(401);
+  });
+
+  // Visit analytics. This route is the one choke point every wishlist page load passes
+  // through, so it is where a visit gets recorded. See lib/visits.ts.
+  it('records a visit for the logged-in person, for the active year', async () => {
+    mockPrismaDb.person.findUnique.mockResolvedValue({ wishlistItems: [], giverFor: [] });
+    mockPrismaDb.visit.create.mockResolvedValue({ id: 'v-1' });
+
+    await personData();
+
+    expect(mockPrismaDb.visit.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({ personId: 'p-1', year: 2026 }),
+    });
+  });
+
+  // The guarantee, pinned at the call site and not just in the lib: analytics must never
+  // be able to take down the thing it is measuring. This is the test that stops someone
+  // "tidying up" the try/catch in lib/visits.ts later.
+  it('still returns the wishlist when recording the visit blows up', async () => {
+    const spy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    mockPrismaDb.person.findUnique.mockResolvedValue({ wishlistItems: [], giverFor: [] });
+    mockPrismaDb.visit.create.mockRejectedValue(new Error('database is locked'));
+
+    const res = await personData();
+
+    expect(res.status).toBe(200);
+    expect((await res.json()).wishlistItems).toEqual([]);
+    spy.mockRestore();
   });
 
   it('hides the match until the round is sent (blind before send), and loads no suggestions', async () => {

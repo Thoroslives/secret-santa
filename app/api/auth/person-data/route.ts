@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { getSession } from "@/lib/session";
 import { getActiveYear } from "@/lib/rounds";
+import { recordVisit } from "@/lib/visits";
 
 export const dynamic = "force-dynamic";
 
@@ -69,6 +70,23 @@ export async function GET() {
           from: s.named ? s.byPerson.name : "Anonymous",
         }))
       : [];
+
+    // Record the visit. Two deliberate choices here, both of which will look like mistakes
+    // to someone tidying up, so they are written down.
+    //
+    // 1. THIS IS A GET THAT WRITES. It is the one choke point every wishlist page load
+    //    passes through: the page fetches this route exactly once on mount, inside a single
+    //    Promise.all, and the wishlist autosave does NOT refetch it, so this does not
+    //    inflate as the participant types. A POST beacon from the browser would cost a
+    //    round trip and get eaten by ad blockers.
+    //
+    // 2. IT GOES AFTER THE READ, NEVER BEFORE IT. SQLite here uses the default rollback
+    //    journal, so a writer holds an EXCLUSIVE lock that blocks readers. Writing first
+    //    would put every participant's page load behind every other participant's write.
+    //    Read first, then take one short lock on the way out.
+    //
+    // recordVisit swallows its own failures (lib/visits.ts) and is a single INSERT.
+    await recordVisit(session.personId, year);
 
     return NextResponse.json({
       wishlistItems: person.wishlistItems,

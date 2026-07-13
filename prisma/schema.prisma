@@ -48,6 +48,7 @@ model Person {
 
   group          Group            @relation(fields: [groupId], references: [id], onDelete: Cascade)
   wishlistItems  WishlistItem[]
+  visits         Visit[]
   giverFor       Assignment[]     @relation("Giver")
   receiverFor    Assignment[]     @relation("Receiver")
   blocksA        Block[]          @relation("BlockA")
@@ -148,4 +149,24 @@ model Suggestion {
   @@index([roundId])
   @@index([forPersonId])
   @@index([byPersonId, forPersonId, roundId]) // the cap-count query
+}
+
+// A participant opening the app. The FIRST thing this app records purely to be measured:
+// every other count on the dashboard (wishlist items, suggestions) is a free COUNT over
+// rows that exist because someone wanted them. A visit leaves no such row behind.
+//
+// `bucket` is floor(epochMs / VISIT_DEBOUNCE_MS) and carries the debounce: see the unique
+// key below and the long comment in lib/visits.ts. `year` is denormalised the same way
+// Assignment.year is, because rollover wipes wishlists and suggestions, and a lifetime
+// total would quietly fold last Christmas into this one's picture.
+model Visit {
+  id        String   @id @default(cuid())
+  personId  String
+  year      Int
+  bucket    Int      // floor(epochMs / VISIT_DEBOUNCE_MS). The debounce IS this key.
+  createdAt DateTime @default(now())
+  person    Person   @relation(fields: [personId], references: [id], onDelete: Cascade)
+
+  @@unique([personId, bucket]) // one visit per person per half hour, enforced by the DB
+  @@index([personId, createdAt])
 }
