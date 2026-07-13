@@ -14,7 +14,26 @@ const mockPrismaDb = {
 };
 jest.mock('@/lib/db', () => ({ prisma: mockPrismaDb }));
 
-import { recordVisit, VISIT_DEBOUNCE_MS } from '@/lib/visits';
+import { recordVisit, VISIT_DEBOUNCE_MS, RECENT_VISIT_WINDOW_MS } from '@/lib/visits';
+
+// These two guard a PRODUCT DECISION, not an implementation detail, which is why they are
+// worth the four lines despite looking like they assert a constant against itself.
+//
+// "A visit is one 30-minute window" was chosen deliberately over "one per calendar day" and
+// "every page load". Nothing else in the suite pins it: every other test derives the bucket
+// FROM VISIT_DEBOUNCE_MS, so they are all self-referential and would stay green if the value
+// silently became a week. And the value now sits one line away from RECENT_VISIT_WINDOW_MS,
+// which is exactly the copy-paste that would do it - so the second test pins them apart.
+describe('the debounce window', () => {
+  it('is 30 minutes, because that is the decision', () => {
+    expect(VISIT_DEBOUNCE_MS).toBe(30 * 60 * 1000);
+  });
+
+  it('is not the same thing as the dashboard "recent" window', () => {
+    expect(RECENT_VISIT_WINDOW_MS).toBe(7 * 24 * 60 * 60 * 1000);
+    expect(VISIT_DEBOUNCE_MS).not.toBe(RECENT_VISIT_WINDOW_MS);
+  });
+});
 
 describe('recordVisit', () => {
   beforeEach(() => {
