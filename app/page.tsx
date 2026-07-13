@@ -2,30 +2,7 @@ import Link from "next/link";
 import { SignInForm } from "./SignInForm";
 import Candle from "./Candle";
 import Embers from "./Embers";
-
-function FirMark({ className }: { className?: string }) {
-  return (
-    <svg
-      viewBox="0 0 48 60"
-      className={className}
-      role="img"
-      aria-label="Evergreen mark"
-      fill="none"
-    >
-      {/* trunk */}
-      <rect x="21" y="50" width="6" height="8" rx="1" fill="oklch(0.380 0.030 60)" />
-      {/* tiers, deepening downward for a little dimension */}
-      <polygon points="24,31 8,50 40,50" fill="oklch(0.500 0.100 150)" />
-      <polygon points="24,20 12,38 36,38" fill="oklch(0.560 0.105 150)" />
-      <polygon points="24,11 16,25 32,25" fill="oklch(0.610 0.110 150)" />
-      {/* gold star */}
-      <path
-        d="M24 2 L26 7 L31 8 L26 9 L24 14 L22 9 L17 8 L22 7 Z"
-        fill="oklch(0.800 0.120 82)"
-      />
-    </svg>
-  );
-}
+import FirMark from "./FirMark";
 
 export default function Home() {
   return (

@@ -63,17 +63,19 @@ describe("app icons", () => {
     expect(new Set(marks).size).toBe(1);
   });
 
-  it("that mark is the home page's FirMark, not a lookalike redraw", () => {
-    const page = read("app/page.tsx");
-    const firMark = page.slice(
-      page.indexOf("function FirMark"),
-      page.indexOf("export default")
-    );
-    const homeShapes = geometry(firMark);
-    expect(homeShapes.length).toBeGreaterThan(0);
+  it("that mark is the app's own FirMark, not a lookalike redraw", () => {
+    // FirMark.tsx is the single place the app draws the tree — the landing hero
+    // and the wishlist masthead both render that one component — so the icon
+    // files are checked straight against it.
+    //
+    // The length guard is what keeps this test honest. Read zero shapes (the
+    // component moved, was renamed, stopped being SVG) and the loop below would
+    // iterate zero times and pass while checking nothing.
+    const markShapes = geometry(read("app/FirMark.tsx"));
+    expect(markShapes.length).toBeGreaterThan(0);
 
     const iconShapes = geometry(read("app/icon.svg"));
-    for (const shape of homeShapes) expect(iconShapes).toContain(shape);
+    for (const shape of markShapes) expect(iconShapes).toContain(shape);
   });
 });
 

@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Candle from "../Candle";
 import Embers from "../Embers";
+import FirMark from "../FirMark";
 import NameEmbers from "../NameEmbers";
 
 interface WishlistItem {
@@ -363,6 +364,31 @@ export default function Wishlist() {
       <Embers />
 
       <div className="relative z-10 mx-auto max-w-6xl">
+        {/* The landing's mark, carried through the door: you sign in and you are
+            still demonstrably in the same place. It is chrome, not a hero, so it
+            sits in the corner at reading size and is deliberately UNLIT — the
+            sealed card and the match reveal are the only two lights on this
+            page, and the brightness gap between them is load-bearing (DESIGN.md).
+            A third glow up here would lift the pre-draw page and close it.
+
+            The mark is not a link: `/` is the signed-out doorway, so sending a
+            signed-in reader there is a dead end. The wordmark carries the name
+            for a screen reader; the tree is decorative beside it. */}
+        <header className="mb-8 flex items-center justify-between gap-4">
+          <div className="flex min-w-0 items-center gap-2.5">
+            <FirMark decorative className="h-8 w-auto shrink-0 sm:h-9" />
+            <span className="truncate font-display text-lg tracking-[-0.01em] text-ink-strong sm:text-xl">
+              Secret Santa
+            </span>
+          </div>
+          <button
+            onClick={handleLogout}
+            className="min-h-[44px] shrink-0 rounded-sm border border-border px-4 py-2 text-ink-muted transition-colors hover:bg-raised hover:text-ink"
+          >
+            Logout
+          </button>
+        </header>
+
         {draws.length > 1 && (
           <div className="mb-6 flex flex-wrap gap-2" role="tablist" aria-label="Your draws">
             {draws.map((d) => {
@@ -392,19 +418,11 @@ export default function Wishlist() {
               Welcome, {personName}!
             </h1>
           </div>
-          <div className="flex items-center gap-3 self-start sm:self-auto">
-            {budget && (
-              <div className="inline-flex items-center rounded-full border border-accent/30 bg-accent/10 px-3 py-1 text-sm font-medium text-accent-text">
-                Budget: {budget.currency} {budget.amount}
-              </div>
-            )}
-            <button
-              onClick={handleLogout}
-              className="min-h-[44px] rounded-sm border border-border px-4 py-2 text-ink-muted transition-colors hover:bg-raised hover:text-ink"
-            >
-              Logout
-            </button>
-          </div>
+          {budget && (
+            <div className="inline-flex shrink-0 items-center self-start rounded-full border border-accent/30 bg-accent/10 px-3 py-1 text-sm font-medium text-accent-text sm:self-auto">
+              Budget: {budget.currency} {budget.amount}
+            </div>
+          )}
         </div>
 
         {error && (
