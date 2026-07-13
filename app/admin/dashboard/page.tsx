@@ -13,6 +13,12 @@ interface Person {
   email?: string;
   personalLinkToken: string;
   _count: { wishlistItems: number; suggestionsBy: number };
+  // Visit analytics, added by GET /api/people. Unlike _count (a free COUNT over rows that
+  // already exist), these come from the Visit table, which exists purely to be measured.
+  // Zero and null are meaningful here, never "no data": zero visits IS the nudge list.
+  visitCount: number;
+  lastVisitAt: string | null;
+  recentVisits: number;
 }
 
 // A 409 from the people API: the write is legal but needs the admin to look at it
@@ -71,6 +77,18 @@ interface Block {
   id: string;
   personAId: string;
   personBId: string;
+}
+
+// "3 days ago". Deliberately coarse: the admin wants to know whether someone has gone
+// quiet, not the minute they last logged in. The exact timestamp is on the title attribute
+// for the rare case he does.
+function timeAgo(iso: string): string {
+  const days = Math.floor((Date.now() - new Date(iso).getTime()) / 86_400_000);
+  if (days === 0) return "today";
+  if (days === 1) return "yesterday";
+  if (days < 7) return `${days} days ago`;
+  const weeks = Math.floor(days / 7);
+  return weeks === 1 ? "1 week ago" : `${weeks} weeks ago`;
 }
 
 export default function AdminDashboard() {
@@ -2154,6 +2172,62 @@ export default function AdminDashboard() {
                     ))}
                   </tbody>
                 </table>
+              </div>
+            </div>
+          )}
+
+          {/* Activity. Who is actually turning up. The two derived lines are the whole point:
+              someone who never opened their link has no wishlist and will get a bad gift, and
+              someone who has not been back since the draw was sent does not know who they got.
+              Neither was knowable before this section existed - the counts in the People table
+              above are a free COUNT over rows that already exist, and a visit leaves no row.
+
+              This deliberately repeats the roster rather than adding columns to that table:
+              engagement is a different question from roster admin, and that row already carries
+              five things. Confirmed with the admin, who knew the table was there. */}
+          {activeGroupId && people.length > 0 && (
+            <div className="mt-8 rounded-md border border-border bg-surface p-6 shadow-elev-1">
+              <h2 className="mb-1 text-xl font-semibold text-ink-strong">Activity</h2>
+              <p className="mb-4 text-sm text-ink-muted">
+                Counting starts the day this went live, so everyone begins on zero.
+              </p>
+              <div className="space-y-2">
+                {people.map((person) => {
+                  const neverOpened = person.visitCount === 0;
+                  // Only meaningful once the draw is out: before that there is nothing to
+                  // have missed. `sentAt` is null until Send, so this stays quiet.
+                  const notBackSinceSent =
+                    !!round?.sentAt &&
+                    !neverOpened &&
+                    !!person.lastVisitAt &&
+                    new Date(person.lastVisitAt) < new Date(round.sentAt);
+
+                  return (
+                    <div
+                      key={person.id}
+                      className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-border/60 bg-raised p-3"
+                    >
+                      <span className="text-sm text-ink-strong">{person.name}</span>
+
+                      {neverOpened ? (
+                        <span className="text-sm font-semibold text-danger">
+                          Never opened their link
+                        </span>
+                      ) : (
+                        <span className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-ink-muted">
+                          {notBackSinceSent && (
+                            <span className="font-semibold text-danger">Not seen their match</span>
+                          )}
+                          <span title={new Date(person.lastVisitAt!).toLocaleString()}>
+                            Last in {timeAgo(person.lastVisitAt!)}
+                          </span>
+                          <span>{person.visitCount} visits</span>
+                          <span>{person.recentVisits} in the last 7 days</span>
+                        </span>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
             </div>
           )}
