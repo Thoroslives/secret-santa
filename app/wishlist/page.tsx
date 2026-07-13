@@ -453,7 +453,7 @@ export default function Wishlist() {
                 </button>
               )}
 
-              <div className="pt-1 text-sm text-ink-muted" role="status" aria-live="polite">
+              <div className="min-h-[1.5rem] pt-1 text-sm text-ink-muted" role="status" aria-live="polite">
                 {saveStatus === "saving" && "Saving..."}
                 {saveStatus === "saved" && <span className="text-success">All changes saved</span>}
                 {saveStatus === "error" && (
@@ -467,7 +467,6 @@ export default function Wishlist() {
                     </button>
                   </span>
                 )}
-                {saveStatus === "idle" && "Your list saves automatically as you type."}
               </div>
             </div>
           </div>
