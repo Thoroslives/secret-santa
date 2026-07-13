@@ -56,6 +56,23 @@ interface GroupSummary {
   personalMessage?: string | null;
 }
 
+// A forced pin: this giver MUST draw this receiver. Scoped to one round, so it is a
+// per-year instruction. It also IS the draw, which is why the route serving it is
+// admin-only on every verb.
+interface Pin {
+  id: string;
+  giverId: string;
+  receiverId: string;
+}
+
+// A block: these two never draw each other, in either direction. Group-scoped, so it
+// persists across years - partners don't stop being partners.
+interface Block {
+  id: string;
+  personAId: string;
+  personBId: string;
+}
+
 export default function AdminDashboard() {
   const [people, setPeople] = useState<Person[]>([]);
   const [assignments, setAssignments] = useState<Assignment[]>([]);
@@ -82,6 +99,30 @@ export default function AdminDashboard() {
   // between "same human" and "two different humans".
   const [confirmError, setConfirmError] = useState("");
   const [resendingId, setResendingId] = useState<string | null>(null);
+
+  // Draw constraints. Both are loaded in the SAME Promise.all as `round` and
+  // `assignments` (see loadData), deliberately: the panel gates on round status, and a
+  // constraint list that refreshed on a different trigger than the round it is gated by
+  // would go stale the moment a draw is cleared or sent.
+  const [pins, setPins] = useState<Pin[]>([]);
+  const [blocks, setBlocks] = useState<Block[]>([]);
+  // The year the pins actually belong to, taken from the pins GET - which resolves it
+  // server-side via getActiveYear, the same call POST uses to decide which round a pin
+  // lands on. Do NOT derive it from `groups`: that list is only refreshed by loadGroups()
+  // (mount, and group creation), NOT by a rollover - and rollover moves Group.year on.
+  // So the group copy goes stale exactly when the year changes, and the panel would title
+  // 2027's pins as 2026's while writing new ones into 2027.
+  const [constraintYear, setConstraintYear] = useState<number | null>(null);
+  const [pinGiver, setPinGiver] = useState("");
+  const [pinReceiver, setPinReceiver] = useState("");
+  const [blockA, setBlockA] = useState("");
+  const [blockB, setBlockB] = useState("");
+  // Feedback is tagged with the form that raised it, so it can render BESIDE that form.
+  // One shared slot at the top of the card would put a block error a screenful away from
+  // the block button - which is the seed panel's original bug, just with a shorter throw.
+  const [constraintFeedback, setConstraintFeedback] = useState<
+    { where: "pin" | "block"; kind: "error" | "success"; text: string } | null
+  >(null);
 
   // Read from the ROUND, not from the rows. `assignments.some(...)` says "not sent" for
   // a round that was sent and then had its rows destroyed, which is exactly the state
@@ -206,6 +247,17 @@ export default function AdminDashboard() {
     setSeededYears([]);
     setSeedMessage(null);
     setSeedOpen(false);
+    // Reset the constraints panel too, exactly as the seed panel above does. Without
+    // this the person selects keep the PREVIOUS group's person ids: those match no
+    // <option> in the new group, so the select renders blank while `disabled={!pinGiver}`
+    // still reads as enabled - an Add button that looks like it has nothing selected but
+    // POSTs the old group's people. (The new membership check makes that fail safely with
+    // a 400, but it should never be reachable.)
+    setPinGiver("");
+    setPinReceiver("");
+    setBlockA("");
+    setBlockB("");
+    setConstraintFeedback(null);
     loadData(groupId);
   };
 
@@ -244,19 +296,26 @@ export default function AdminDashboard() {
 
   const loadData = async (groupId: string) => {
     try {
-      const [peopleRes, assignmentsRes, groupRes] = await Promise.all([
+      const [peopleRes, assignmentsRes, groupRes, pinsRes, blocksRes] = await Promise.all([
         fetch(`/api/people?groupId=${groupId}`),
         fetch(`/api/assignments?groupId=${groupId}`),
         fetch(`/api/groups/${groupId}`),
+        fetch(`/api/pins?groupId=${groupId}`),
+        fetch(`/api/blocks?groupId=${groupId}`),
       ]);
 
       const peopleData = await peopleRes.json();
       const assignmentsData = await assignmentsRes.json();
       const groupData = await groupRes.json();
+      const pinsData = await pinsRes.json();
+      const blocksData = await blocksRes.json();
 
       setPeople(peopleData.people || []);
       setAssignments(assignmentsData.assignments || []);
       setRound(assignmentsData.round || null);
+      setPins(pinsData.pins || []);
+      setBlocks(blocksData.blocks || []);
+      setConstraintYear(typeof pinsData.year === "number" ? pinsData.year : null);
 
       if (groupData.group) {
         setBudget({
@@ -805,6 +864,106 @@ export default function AdminDashboard() {
       setError("An error occurred");
     }
   };
+
+  // -- Draw constraints -----------------------------------------------------------
+  //
+  // The APIs for these have existed and been tested since P2; there was simply never a
+  // UI, so they were unreachable AND unreadable (write-only, the same way the seed panel
+  // was before a379158). Names come from `people`, which is already in state - the
+  // selects below cannot render without it, so the API returns raw ids.
+
+  const personName = (id: string) => people.find((p) => p.id === id)?.name ?? "Unknown";
+
+  // Every constraint write goes through here. On success it re-runs loadData, so the
+  // panel shows what the server actually stored rather than what we hoped it stored -
+  // and, when a write clears or changes the round, the round state moves with it.
+  const writeConstraint = async (
+    where: "pin" | "block",
+    url: string,
+    init: RequestInit,
+    okText: string,
+    onOk?: () => void
+  ) => {
+    if (!activeGroupId) return;
+    setConstraintFeedback(null);
+    try {
+      const res = await fetch(url, init);
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        // 409 is the stale-draw refusal: a draw already exists and this constraint
+        // contradicts it. The API's message names the way out (clear the draw and
+        // generate again), so show it verbatim rather than inventing our own.
+        setConstraintFeedback({ where, kind: "error", text: data.error || "That didn't work" });
+        return;
+      }
+      onOk?.();
+      setConstraintFeedback({ where, kind: "success", text: okText });
+      await loadData(activeGroupId);
+    } catch {
+      setConstraintFeedback({ where, kind: "error", text: "An error occurred" });
+    }
+  };
+
+  const handleAddPin = () =>
+    writeConstraint(
+      "pin",
+      "/api/pins",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          groupId: activeGroupId,
+          giverId: pinGiver,
+          receiverId: pinReceiver,
+        }),
+      },
+      "Pin saved.",
+      () => {
+        setPinGiver("");
+        setPinReceiver("");
+      }
+    );
+
+  const handleRemovePin = (id: string) =>
+    writeConstraint("pin", `/api/pins?id=${id}`, { method: "DELETE" }, "Pin removed.");
+
+  const handleAddBlock = () =>
+    writeConstraint(
+      "block",
+      "/api/blocks",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          groupId: activeGroupId,
+          personAId: blockA,
+          personBId: blockB,
+        }),
+      },
+      "Block saved.",
+      () => {
+        setBlockA("");
+        setBlockB("");
+      }
+    );
+
+  const handleRemoveBlock = (id: string) =>
+    writeConstraint("block", `/api/blocks?id=${id}`, { method: "DELETE" }, "Block removed.");
+
+  // Rendered directly beneath whichever form raised it.
+  const constraintNotice = (where: "pin" | "block") =>
+    constraintFeedback?.where === where ? (
+      <div
+        role="status"
+        className={`mt-3 rounded-sm border p-3 text-sm ${
+          constraintFeedback.kind === "error"
+            ? "border-danger/40 bg-danger/10 text-ink"
+            : "border-border bg-raised text-ink-muted"
+        }`}
+      >
+        {constraintFeedback.text}
+      </div>
+    ) : null;
 
   // Load whatever pairs are already recorded for the selected seed year, so the
   // table shows and edits real history instead of always starting blank.
@@ -1476,6 +1635,186 @@ export default function AdminDashboard() {
                     </ul>
                   </div>
                 )}
+              </div>
+            </div>
+
+            {/* Draw constraints: pins (this year) and blocks (permanent).
+                Plain and always visible - not a collapsible. Every group of Boss's will
+                always have at least one block (partners), so a section that auto-opened
+                whenever constraints existed would be a collapsible that never collapses. */}
+            <div className="rounded-md border border-border bg-surface p-6 shadow-elev-1">
+              <h2 className="mb-1 text-xl font-semibold text-ink-strong">Constraints</h2>
+              <p className="mb-4 text-sm text-ink-muted">
+                Rules the draw must obey. They apply when you generate.
+              </p>
+
+              {/* -- Pins: directional, this year only -- */}
+              <div className="mb-6">
+                {/* The year comes from the pins GET, which resolves it server-side with
+                    the same getActiveYear call POST uses. Not from `groups`: that copy is
+                    never refreshed by a rollover, so it would title next year's pins with
+                    last year's number. */}
+                <h3 className="mb-1 text-sm font-semibold text-ink-strong">
+                  Pins{" "}
+                  <span className="font-normal text-ink-muted">
+                    — {constraintYear ?? ""} only
+                  </span>
+                </h3>
+                <p className="mb-3 text-xs text-ink-muted">
+                  Force one person to draw another. One pin per giver.
+                </p>
+
+                {pins.length > 0 ? (
+                  <ul className="mb-3 space-y-2">
+                    {pins.map((pin) => (
+                      <li
+                        key={pin.id}
+                        className="flex items-center justify-between gap-3 rounded-sm border border-border bg-raised px-3 py-2 text-sm"
+                      >
+                        <span className="text-ink">
+                          {personName(pin.giverId)}{" "}
+                          <span className="text-ink-muted">draws</span>{" "}
+                          {personName(pin.receiverId)}
+                        </span>
+                        {!roundSent && (
+                          <button
+                            type="button"
+                            onClick={() => handleRemovePin(pin.id)}
+                            aria-label={`Remove pin ${personName(pin.giverId)} draws ${personName(pin.receiverId)}`}
+                            className="shrink-0 rounded-sm border border-border px-2 py-1 text-xs font-medium text-ink-muted transition-colors hover:bg-surface hover:text-ink"
+                          >
+                            Remove
+                          </button>
+                        )}
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="mb-3 text-sm text-ink-muted">No pins.</p>
+                )}
+
+                {roundSent ? (
+                  <p className="text-xs text-ink-muted">
+                    Locked — this draw has been sent.
+                  </p>
+                ) : (
+                  <div className="flex flex-col gap-2 sm:flex-row">
+                    <select
+                      aria-label="Pin giver"
+                      value={pinGiver}
+                      onChange={(e) => setPinGiver(e.target.value)}
+                      className="flex-1 rounded-sm border border-border bg-raised px-3 py-2 text-sm text-ink"
+                    >
+                      <option value="">Who gives…</option>
+                      {people.map((p) => (
+                        <option key={p.id} value={p.id}>{p.name}</option>
+                      ))}
+                    </select>
+                    <select
+                      aria-label="Pin receiver"
+                      value={pinReceiver}
+                      onChange={(e) => setPinReceiver(e.target.value)}
+                      className="flex-1 rounded-sm border border-border bg-raised px-3 py-2 text-sm text-ink"
+                    >
+                      <option value="">…draws whom</option>
+                      {people.map((p) => (
+                        <option key={p.id} value={p.id}>{p.name}</option>
+                      ))}
+                    </select>
+                    <button
+                      type="button"
+                      onClick={handleAddPin}
+                      disabled={!pinGiver || !pinReceiver}
+                      className="rounded-sm border border-border px-4 py-2 text-sm font-semibold text-ink transition-colors hover:bg-raised disabled:opacity-40"
+                    >
+                      Add pin
+                    </button>
+                  </div>
+                )}
+                {constraintNotice("pin")}
+              </div>
+
+              {/* -- Blocks: symmetric, permanent. Editable even after a send: a block is a
+                   fact about two people, not a setting on one draw, so it stays editable
+                   and simply applies from the next draw. -- */}
+              <div className="border-t border-border/60 pt-5">
+                <h3 className="mb-1 text-sm font-semibold text-ink-strong">
+                  Blocks <span className="font-normal text-ink-muted">— every year</span>
+                </h3>
+                <p className="mb-3 text-xs text-ink-muted">
+                  Two people who never draw each other, in either direction.
+                </p>
+
+                {blocks.length > 0 ? (
+                  <ul className="mb-3 space-y-2">
+                    {blocks.map((block) => (
+                      <li
+                        key={block.id}
+                        className="flex items-center justify-between gap-3 rounded-sm border border-border bg-raised px-3 py-2 text-sm"
+                      >
+                        <span className="text-ink">
+                          {personName(block.personAId)}{" "}
+                          <span className="text-ink-muted">and</span>{" "}
+                          {personName(block.personBId)}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveBlock(block.id)}
+                          aria-label={`Remove block between ${personName(block.personAId)} and ${personName(block.personBId)}`}
+                          className="shrink-0 rounded-sm border border-border px-2 py-1 text-xs font-medium text-ink-muted transition-colors hover:bg-surface hover:text-ink"
+                        >
+                          Remove
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="mb-3 text-sm text-ink-muted">No blocks.</p>
+                )}
+
+                <div className="flex flex-col gap-2 sm:flex-row">
+                  <select
+                    aria-label="Block person one"
+                    value={blockA}
+                    onChange={(e) => setBlockA(e.target.value)}
+                    className="flex-1 rounded-sm border border-border bg-raised px-3 py-2 text-sm text-ink"
+                  >
+                    <option value="">Someone…</option>
+                    {people.map((p) => (
+                      <option key={p.id} value={p.id}>{p.name}</option>
+                    ))}
+                  </select>
+                  <select
+                    aria-label="Block person two"
+                    value={blockB}
+                    onChange={(e) => setBlockB(e.target.value)}
+                    className="flex-1 rounded-sm border border-border bg-raised px-3 py-2 text-sm text-ink"
+                  >
+                    <option value="">…and someone</option>
+                    {people.map((p) => (
+                      <option key={p.id} value={p.id}>{p.name}</option>
+                    ))}
+                  </select>
+                  <button
+                    type="button"
+                    onClick={handleAddBlock}
+                    disabled={!blockA || !blockB}
+                    className="rounded-sm border border-border px-4 py-2 text-sm font-semibold text-ink transition-colors hover:bg-raised disabled:opacity-40"
+                  >
+                    Add block
+                  </button>
+                </div>
+
+                {constraintNotice("block")}
+
+                {/* Blocks stay editable after a send - a block is a fact about two people,
+                    not a setting on one draw. Say when it takes effect either way, so it is
+                    never mistaken for something that changes a draw already out. */}
+                <p className="mt-3 text-xs text-ink-muted">
+                  {roundSent
+                    ? "Changes apply from the next draw — this year's has already gone out."
+                    : "Blocks are permanent and apply to every draw from now on."}
+                </p>
               </div>
             </div>
 

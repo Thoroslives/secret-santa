@@ -208,8 +208,8 @@ import { POST as switchDraw } from '@/app/api/auth/switch/route';
 import { POST as adminAuth } from '@/app/api/admin/auth/route';
 import { GET as oidcLogin, dynamic as oidcLoginDynamic } from '@/app/api/admin/oidc/login/route';
 import { GET as oidcCallback, dynamic as oidcCallbackDynamic } from '@/app/api/admin/oidc/callback/route';
-import { POST as createBlock, DELETE as deleteBlock } from '@/app/api/blocks/route';
-import { POST as createPin, DELETE as deletePin } from '@/app/api/pins/route';
+import { POST as createBlock, DELETE as deleteBlock, GET as getBlocks } from '@/app/api/blocks/route';
+import { POST as createPin, DELETE as deletePin, GET as getPins } from '@/app/api/pins/route';
 import { POST as generateRound } from '@/app/api/rounds/generate/route';
 import { POST as sendRound } from '@/app/api/rounds/send/route';
 import { POST as rolloverRound } from '@/app/api/rounds/rollover/route';
@@ -2391,6 +2391,15 @@ describe('/api/blocks', () => {
   const url = 'http://localhost:3000/api/blocks';
   beforeEach(() => {
     mockSession.isAdmin = true;
+    // POST now validates that both people belong to the group (it never used to - that
+    // gap is what let a pin/block name a stranger, or a deactivated person the picker
+    // still offered). These fixtures say "a, b and z are members of this group", which is
+    // what every test below already assumed implicitly.
+    mockPrismaDb.person.findMany.mockResolvedValue([{ id: 'a' }, { id: 'b' }, { id: 'z' }]);
+    // No round, so no generated draw to conflict with, in the default case.
+    (getActiveYear as jest.Mock).mockResolvedValue(2026);
+    (getRound as jest.Mock).mockResolvedValue(null);
+    mockPrismaDb.assignment.findMany.mockResolvedValue([]);
   });
 
   it('returns 400 when fields are missing', async () => {
@@ -2501,6 +2510,123 @@ describe('/api/blocks', () => {
     expect(res.status).toBe(200);
     expect(mockPrismaDb.block.delete).toHaveBeenCalledWith({ where: { id: 'blk-3' } });
   });
+
+  // -- Membership validation, and the deliberate asymmetry with pins.
+  //
+  // A pin must target an ACTIVE person (generate() only draws from active people, so a
+  // pin at a deactivated one is guaranteed-invalid input). A BLOCK must not: a block is
+  // a permanent, cross-year fact ("these two are a couple"), and someone deactivated for
+  // one year may well be back the next. Rejecting a block on an inactive member would
+  // throw away a true statement. So blocks check membership only, never `active`.
+  describe('POST membership validation', () => {
+    beforeEach(() => {
+      mockPrismaDb.block.findFirst.mockResolvedValue(null);
+      mockPrismaDb.assignment.findMany.mockResolvedValue([]);
+      (getActiveYear as jest.Mock).mockResolvedValue(2026);
+      (getRound as jest.Mock).mockResolvedValue(null);
+    });
+
+    it('rejects a block on someone who is not in the group at all', async () => {
+      mockPrismaDb.person.findMany.mockResolvedValue([{ id: 'p-1' }, { id: 'p-2' }]);
+      const res = await createBlock(makePostRequest(url, { groupId: 'group-1', personAId: 'p-1', personBId: 'p-9' }));
+      expect(res.status).toBe(400);
+      expect(mockPrismaDb.block.create).not.toHaveBeenCalled();
+    });
+
+    it('ALLOWS a block on an INACTIVE member - a block is permanent and outlives deactivation', async () => {
+      // p-2 is inactive. The membership query must NOT filter on active.
+      mockPrismaDb.person.findMany.mockResolvedValue([{ id: 'p-1' }, { id: 'p-2' }]);
+      mockPrismaDb.block.create.mockResolvedValue({ id: 'blk-1' });
+      const res = await createBlock(makePostRequest(url, { groupId: 'group-1', personAId: 'p-1', personBId: 'p-2' }));
+      expect(res.status).toBe(201);
+      expect(mockPrismaDb.person.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { groupId: 'group-1' } })
+      );
+    });
+  });
+
+  // -- The stale-draw guard, blocks side. Refuses; never destroys.
+  describe('POST against a generated draw', () => {
+    beforeEach(() => {
+      mockPrismaDb.person.findMany.mockResolvedValue([{ id: 'p-1' }, { id: 'p-2' }]);
+      mockPrismaDb.block.findFirst.mockResolvedValue(null);
+      (getActiveYear as jest.Mock).mockResolvedValue(2026);
+    });
+
+    it('REFUSES (409) when the generated draw pairs the two people being blocked', async () => {
+      (getRound as jest.Mock).mockResolvedValue({ id: 'round-1', status: 'generated' });
+      // The draw has p-2 -> p-1. Blocking them contradicts it (symmetric: either direction).
+      mockPrismaDb.assignment.findMany.mockResolvedValue([{ giverId: 'p-2', receiverId: 'p-1' }]);
+      const res = await createBlock(makePostRequest(url, { groupId: 'group-1', personAId: 'p-1', personBId: 'p-2' }));
+      expect(res.status).toBe(409);
+      expect(mockPrismaDb.block.create).not.toHaveBeenCalled();
+      expect(mockPrismaDb.assignment.deleteMany).not.toHaveBeenCalled();
+    });
+
+    it('ALLOWS a block the generated draw does not contradict', async () => {
+      (getRound as jest.Mock).mockResolvedValue({ id: 'round-1', status: 'generated' });
+      mockPrismaDb.assignment.findMany.mockResolvedValue([{ giverId: 'p-1', receiverId: 'p-3' }]);
+      mockPrismaDb.block.create.mockResolvedValue({ id: 'blk-1' });
+      const res = await createBlock(makePostRequest(url, { groupId: 'group-1', personAId: 'p-1', personBId: 'p-2' }));
+      expect(res.status).toBe(201);
+    });
+
+    // Re-posting a block that ALREADY exists changes nothing, so it cannot invalidate the
+    // draw - and the guard exists only to catch changes that can. Ordered the other way
+    // round, this idempotent no-op would 409 purely because a draw generated BEFORE the
+    // block still pairs those two, contradicting the guard's own rule.
+    it('does NOT refuse an idempotent re-add of a block that already exists', async () => {
+      (getRound as jest.Mock).mockResolvedValue({ id: 'round-1', status: 'generated' });
+      mockPrismaDb.assignment.findMany.mockResolvedValue([{ giverId: 'p-2', receiverId: 'p-1' }]);
+      mockPrismaDb.block.findFirst.mockResolvedValue({ id: 'blk-existing' });
+      const res = await createBlock(makePostRequest(url, { groupId: 'group-1', personAId: 'p-1', personBId: 'p-2' }));
+      expect(res.status).toBe(200);
+      expect(mockPrismaDb.block.create).not.toHaveBeenCalled();
+    });
+
+    // Boss's decision: a SENT draw is history. Blocks stay editable after a send and
+    // clear nothing - the block simply applies from the next draw. Pins stay locked.
+    it('ALLOWS a block on a SENT round, and does not touch the draw', async () => {
+      (getRound as jest.Mock).mockResolvedValue({ id: 'round-1', status: 'sent' });
+      mockPrismaDb.assignment.findMany.mockResolvedValue([{ giverId: 'p-2', receiverId: 'p-1' }]);
+      mockPrismaDb.block.create.mockResolvedValue({ id: 'blk-1' });
+      const res = await createBlock(makePostRequest(url, { groupId: 'group-1', personAId: 'p-1', personBId: 'p-2' }));
+      expect(res.status).toBe(201);
+      expect(mockPrismaDb.assignment.deleteMany).not.toHaveBeenCalled();
+    });
+  });
+
+  // -- GET: the read side. Blocks were write-only until now, which is why the
+  // dashboard could never show them (the 2nd instance of that bug class here).
+  describe('GET', () => {
+    it('returns the group\'s blocks for an admin', async () => {
+      mockPrismaDb.block.findMany.mockResolvedValue([
+        { id: 'blk-1', groupId: 'group-1', personAId: 'p-1', personBId: 'p-2' },
+      ]);
+      const res = await getBlocks(makeGetRequest(url + '?groupId=group-1'));
+      expect(res.status).toBe(200);
+      const body = await res.json();
+      expect(body.blocks).toHaveLength(1);
+      expect(mockPrismaDb.block.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { groupId: 'group-1' } })
+      );
+    });
+
+    it('returns 400 without a groupId', async () => {
+      const res = await getBlocks(makeGetRequest(url));
+      expect(res.status).toBe(400);
+    });
+
+    it('returns 403 for a participant (non-admin)', async () => {
+      delete mockSession.isAdmin;
+      mockSession.isLoggedIn = true;
+      mockSession.personId = 'p-1';
+      mockSession.groupId = 'group-1';
+      const res = await getBlocks(makeGetRequest(url + '?groupId=group-1'));
+      expect(res.status).toBe(403);
+      expect(mockPrismaDb.block.findMany).not.toHaveBeenCalled();
+    });
+  });
 });
 
 // ===========================================================================
@@ -2512,6 +2638,12 @@ describe('/api/pins', () => {
     mockSession.isAdmin = true;
     (ensureRound as jest.Mock).mockResolvedValue({ id: 'round-1', groupId: 'group-1', year: 2026, status: 'draft' });
     (getActiveYear as jest.Mock).mockResolvedValue(2026);
+    // POST now validates that giver and receiver are ACTIVE members of the group. These
+    // fixtures say "g and r are active members", which is what the tests below already
+    // assumed implicitly - the route simply never checked.
+    mockPrismaDb.person.findMany.mockResolvedValue([{ id: 'g' }, { id: 'r' }]);
+    // Default: a draft round, so no generated draw to conflict with.
+    mockPrismaDb.assignment.findMany.mockResolvedValue([]);
   });
 
   it('returns 400 when fields are missing', async () => {
@@ -2618,6 +2750,136 @@ describe('/api/pins', () => {
     // which round the pin lands on - only Group.year (via getActiveYear) does.
     await createPin(makePostRequest(url, { groupId: 'group-1', year: 1999, giverId: 'g', receiverId: 'r' }));
     expect(ensureRound).toHaveBeenCalledWith('group-1', 2026);
+  });
+
+  // -- Membership validation. POST /api/pins did NO membership check at all (unlike
+  // /api/rounds/seed, which has always rejected strangers). That gap is load-bearing:
+  // GET /api/people does not filter inactive, so a DEACTIVATED person still appears in
+  // the dashboard's person picker - but generate() only ever considers { active: true }.
+  // So a pin at a deactivated receiver is guaranteed-invalid input that the engine only
+  // rejects LATER, at generate, with a raw cuid in the message.
+  describe('POST membership validation', () => {
+    beforeEach(() => {
+      mockPrismaDb.person.findMany.mockResolvedValue([{ id: 'g-1' }, { id: 'r-1' }]);
+      mockPrismaDb.assignment.findMany.mockResolvedValue([]);
+    });
+
+    it('rejects a pin at a person who is not an ACTIVE member of the group', async () => {
+      // 'r-9' is absent from the active-member set (deactivated, or another group).
+      mockPrismaDb.person.findMany
+        .mockResolvedValueOnce([{ id: 'g-1' }, { id: 'r-1' }])   // the active-member set
+        .mockResolvedValueOnce([{ id: 'r-9', name: 'Zoe' }]);    // naming the offender
+      const res = await createPin(makePostRequest(url, { groupId: 'group-1', giverId: 'g-1', receiverId: 'r-9' }));
+      expect(res.status).toBe(400);
+      expect(mockPrismaDb.forcedPin.upsert).not.toHaveBeenCalled();
+      // Must be checked against ACTIVE people - that is the set generate() draws from.
+      expect(mockPrismaDb.person.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { groupId: 'group-1', active: true } })
+      );
+      // And it must NAME them: the picker offers deactivated people, so "one of these two
+      // is invalid" would send the admin hunting.
+      const body = await res.json();
+      expect(body.error).toMatch(/Zoe/);
+    });
+
+    it('rejects a pin FROM a person who is not an active member', async () => {
+      const res = await createPin(makePostRequest(url, { groupId: 'group-1', giverId: 'g-9', receiverId: 'r-1' }));
+      expect(res.status).toBe(400);
+      expect(mockPrismaDb.forcedPin.upsert).not.toHaveBeenCalled();
+    });
+  });
+
+  // -- The stale-draw guard. POST accepted a pin on an already-GENERATED round whose
+  // assignments did not honour it, and send() has no constraints-changed check - so a
+  // draw that silently ignored the pin could be emailed to real people. It now REFUSES.
+  // It does not clear the draw: the existing Clear Draw path snapshots the DB and fails
+  // closed, and reimplementing that here would be a second, weaker destructive path.
+  describe('POST against a generated draw', () => {
+    beforeEach(() => {
+      mockPrismaDb.person.findMany.mockResolvedValue([{ id: 'g-1' }, { id: 'r-1' }, { id: 'r-2' }]);
+      (ensureRound as jest.Mock).mockResolvedValue({ id: 'round-1', groupId: 'group-1', year: 2026, status: 'generated' });
+    });
+
+    it('REFUSES (409) when the generated draw contradicts the new pin', async () => {
+      // The draw has g-1 -> r-2. Pinning g-1 -> r-1 contradicts it.
+      mockPrismaDb.assignment.findMany.mockResolvedValue([{ giverId: 'g-1', receiverId: 'r-2' }]);
+      const res = await createPin(makePostRequest(url, { groupId: 'group-1', giverId: 'g-1', receiverId: 'r-1' }));
+      expect(res.status).toBe(409);
+      // Nothing written, nothing destroyed.
+      expect(mockPrismaDb.forcedPin.upsert).not.toHaveBeenCalled();
+      expect(mockPrismaDb.assignment.deleteMany).not.toHaveBeenCalled();
+      expect(mockPrismaDb.round.update).not.toHaveBeenCalled();
+    });
+
+    it('ALLOWS a pin the generated draw already satisfies (no needless refusal)', async () => {
+      mockPrismaDb.assignment.findMany.mockResolvedValue([{ giverId: 'g-1', receiverId: 'r-1' }]);
+      mockPrismaDb.forcedPin.upsert.mockResolvedValue({ id: 'pin-1' });
+      const res = await createPin(makePostRequest(url, { groupId: 'group-1', giverId: 'g-1', receiverId: 'r-1' }));
+      expect(res.status).toBe(201);
+      expect(mockPrismaDb.forcedPin.upsert).toHaveBeenCalled();
+    });
+
+    it('ALLOWS a pin for a giver with no assignment yet (a stranded generated round)', async () => {
+      // round=generated but zero assignments (the stranded state). Nothing to contradict.
+      mockPrismaDb.assignment.findMany.mockResolvedValue([]);
+      mockPrismaDb.forcedPin.upsert.mockResolvedValue({ id: 'pin-1' });
+      const res = await createPin(makePostRequest(url, { groupId: 'group-1', giverId: 'g-1', receiverId: 'r-1' }));
+      expect(res.status).toBe(201);
+    });
+  });
+
+  // -- GET: the read side. A ForcedPin row says "A draws B" - it IS the draw.
+  // These tests exist because that makes this the single most leak-sensitive
+  // read in the app.
+  describe('GET', () => {
+    it('returns the active round\'s pins for an admin', async () => {
+      (getRound as jest.Mock).mockResolvedValue({ id: 'round-1', status: 'draft' });
+      mockPrismaDb.forcedPin.findMany.mockResolvedValue([
+        { id: 'pin-1', roundId: 'round-1', giverId: 'g-1', receiverId: 'r-1' },
+      ]);
+      const res = await getPins(makeGetRequest(url + '?groupId=group-1'));
+      expect(res.status).toBe(200);
+      const body = await res.json();
+      expect(body.pins).toHaveLength(1);
+      expect(body.year).toBe(2026);
+      // Scoped by roundId - NOT by group. ForcedPin has no groupId (schema), so a
+      // query that traversed group->round without pinning the year would hand back
+      // EVERY past year's pins. roundId is unique per (groupId, year), so it can't.
+      expect(mockPrismaDb.forcedPin.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { roundId: 'round-1' } })
+      );
+    });
+
+    it('returns 403 for a participant (non-admin) - a pin IS the draw', async () => {
+      delete mockSession.isAdmin;
+      mockSession.isLoggedIn = true;
+      mockSession.personId = 'p-1';
+      mockSession.groupId = 'group-1';
+      const res = await getPins(makeGetRequest(url + '?groupId=group-1'));
+      expect(res.status).toBe(403);
+      expect(mockPrismaDb.forcedPin.findMany).not.toHaveBeenCalled();
+    });
+
+    it('returns 400 without a groupId', async () => {
+      const res = await getPins(makeGetRequest(url));
+      expect(res.status).toBe(400);
+    });
+
+    // A read must never materialize a Round. ensureRound() upserts - so merely
+    // opening the dashboard for a group with no draw yet would create an empty
+    // draft round for it. Note the assertion is on `upsert`: the prisma mock has
+    // no `round.create`, so asserting that would be vacuous (it'd throw, or get
+    // "fixed" into a no-op).
+    it('does NOT create a round when none exists yet', async () => {
+      (getRound as jest.Mock).mockResolvedValue(null);
+      const res = await getPins(makeGetRequest(url + '?groupId=group-1'));
+      expect(res.status).toBe(200);
+      const body = await res.json();
+      expect(body.pins).toEqual([]);
+      expect(body.year).toBe(2026);
+      expect(ensureRound).not.toHaveBeenCalled();
+      expect(mockPrismaDb.round.upsert).not.toHaveBeenCalled();
+    });
   });
 });
 
