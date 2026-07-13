@@ -32,15 +32,22 @@ Warm, crafted, intimate. It should feel like a hand-addressed card, not an app n
 
 Generic AI-Christmas: snow overlays, glossy gradients, emoji used as decoration, the reflexive red-and-green that every generator reaches for. Childish or cartoon holiday clip-art: cartoon Santas, kid-party energy. Also being removed from the forked original: the commercial gift-exchange-SaaS framing (pricing, "sign up free", SEO landing copy) and the santa-red kitsch it shipped with.
 
+Two of those are worth being precise about, because the app now does something adjacent to each and the distinction is the entire point:
+
+- **Snow is still banned. Embers are not snow.** We are *inside*, by a fire, in a warm dark room. A white-blue flake falling over everything is the reflex, and it fights the whole palette. A gold ember rising through the firelight is what the room would actually produce. Same instinct, opposite execution.
+- **The reflex is red-and-GREEN, not red.** The matched name is a hot-coal red, because the hottest light in a hearth *is* red. A pillarbox santa-red sitting next to a christmas green would be the tell; a coal in a fire is not.
+
 ## Design Principles
 
 Made for us, not sold to us. Every surface reads as a private family thing; nothing on it tries to convert or sell.
 
 Instantly obvious, once a year. The people using this forget it between Decembers, so the next step is always the clear one and no screen needs relearning.
 
-Warmth from craft, not decoration. The cozy feeling comes from type, colour, spacing and small considered details, never from snow, gradients, or emoji.
+Warmth from craft, not decoration. The cozy feeling comes from type, colour, spacing and small considered details, never from snow, gradients, or emoji. Where the app does reach for atmosphere, it earns it by behaving like the thing it depicts: the candle gutters, the coal flares and cools, the embers rise. Effects that merely pulse on a timer are decoration, and they read as fake.
 
-Quiet, then a moment. Most screens stay calm and legible; the one deliberate flourish is saved for the reveal, when a participant sees their match.
+Quiet, then a moment. The room is alive but calm: nothing in the ambient layer asks to be looked at, and it never moves over anything you are reading in a way that costs you. The one deliberate flourish is still saved for the reveal, when a participant sees their match, and the page visibly brightens when it lands.
+
+Legible before it is lovely. Every atmospheric choice is measured against the hardest case this app actually has, which is an older phone in a bright kitchen: contrast is computed rather than eyed, the animated name stays readable at the coldest point of its cycle, and the ambient layer holds 60fps at zero layouts. Where the two conflict, legibility wins and the atmosphere gives way.
 
 The landing is a doorway, not a pitch. The public page welcomes and signs you in. It never explains features or sells the idea.
 

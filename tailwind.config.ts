@@ -33,6 +33,24 @@ const config: Config = {
           press: "oklch(0.500 0.100 150 / <alpha-value>)",
           on: "oklch(0.985 0.010 150 / <alpha-value>)",
         },
+        // The heat of the fire, for the match reveal and nothing else.
+        //
+        // This is NOT santa-red, and the difference is the whole point: the
+        // anti-reference is the reflexive red-and-GREEN pairing, not red itself.
+        // A hearth's hottest light IS red, so a hot-coal red belongs in this
+        // theme in a way a pillarbox red never would. Kept clearly apart from
+        // `danger` (a duller brick at 0.620/0.150/32, which means "you are about
+        // to break something" and must not be confused with a person's name):
+        // this is lighter, hotter and more saturated.
+        //
+        // 6.5:1 on the canvas, measured, not guessed. On a dark base a red has
+        // to be light to be legible at all, so it is held as red as it can be
+        // while still clearing the bar for the older eyes this is built for.
+        ember: {
+          DEFAULT: "oklch(0.700 0.200 35 / <alpha-value>)",
+          hot: "oklch(0.820 0.150 45 / <alpha-value>)",
+          glow: "oklch(0.660 0.190 33 / <alpha-value>)",
+        },
         accent: {
           DEFAULT: "oklch(0.800 0.120 82 / <alpha-value>)",
           text: "oklch(0.850 0.130 84 / <alpha-value>)",

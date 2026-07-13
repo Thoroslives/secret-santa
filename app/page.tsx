@@ -1,5 +1,7 @@
 import Link from "next/link";
 import { SignInForm } from "./SignInForm";
+import Candle from "./Candle";
+import Embers from "./Embers";
 
 function FirMark({ className }: { className?: string }) {
   return (
@@ -29,9 +31,11 @@ export default function Home() {
   return (
     <main className="relative min-h-[100svh] overflow-hidden">
       <div className="room-vignette" aria-hidden />
+      <Embers />
 
       <section className="relative z-10 mx-auto flex min-h-[100svh] max-w-2xl flex-col items-center justify-center px-6 py-16 text-center">
         <div className="hearth-glow reveal flex flex-col items-center">
+          <Candle tone="hearth" />
           <FirMark className="relative z-[1] mb-7 h-16 w-auto" />
           <h1 className="relative z-[1] text-balance font-display text-[clamp(2.6rem,8.5vw,4.75rem)] font-medium leading-[1.02] tracking-[-0.03em] text-ink-strong">
             A family tradition

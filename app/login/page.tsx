@@ -1,5 +1,7 @@
 import Link from "next/link";
 import { SignInForm } from "@/app/SignInForm";
+import Candle from "@/app/Candle";
+import Embers from "@/app/Embers";
 
 // /login - standalone self-service sign-in. The landing (app/page.tsx) hosts the
 // same <SignInForm/>, but this route stays as the durable target for the
@@ -16,8 +18,14 @@ export default function LoginPage({
   const invalidLink = searchParams?.error === "invalid-link";
 
   return (
-    <main className="flex min-h-[100svh] items-center justify-center bg-canvas p-4">
-      <div className="w-full max-w-md rounded-md border border-border bg-surface p-8 shadow-elev-2">
+    <main className="relative flex min-h-[100svh] items-center justify-center overflow-hidden bg-canvas p-4">
+      {/* Participant-facing: an expired link lands here, between the lit landing and
+          the lit wishlist. Without this it was the one dark room in the house. */}
+      <div className="room-vignette" aria-hidden />
+      <Candle tone="page" />
+      <Embers />
+
+      <div className="relative z-10 w-full max-w-md rounded-md border border-border bg-surface p-8 shadow-elev-2">
         <div className="mb-6 text-center">
           <div className="mx-auto mb-4 h-px w-10 bg-accent-dim" />
           <h1 className="font-display text-2xl font-medium tracking-[-0.02em] text-ink-strong">

@@ -72,28 +72,16 @@ select option {
     text-wrap: pretty;
   }
 
-  /* The one committed idea: a candlelit room. A single warm pool of light
-     behind the hero that ignites on load, plus a vignette that deepens the
-     corners so the light reads as the focal point. Not a per-card effect. */
+  /* ---- The room -------------------------------------------------------- */
+
+  /* The one committed idea: a candlelit room. A warm pool of light behind the
+     hero, plus a vignette that deepens the corners so the light reads as the
+     focal point. The light itself is <Candle tone="hearth" />; this is only the
+     positioning context it hangs in. It used to be a ::before, but a
+     pseudo-element cannot be layered, and layering is the whole trick behind a
+     flicker that does not visibly repeat (see the candle block below). */
   .hearth-glow {
     position: relative;
-  }
-  .hearth-glow::before {
-    content: "";
-    position: absolute;
-    inset: -55% -20% auto 50%;
-    translate: -50% 0;
-    width: min(92vw, 840px);
-    aspect-ratio: 1;
-    background: radial-gradient(
-      circle at center,
-      oklch(0.820 0.130 82 / 0.34) 0%,
-      oklch(0.680 0.100 82 / 0.15) 30%,
-      transparent 64%
-    );
-    pointer-events: none;
-    z-index: 0;
-    animation: ignite 1.7s cubic-bezier(0.16, 1, 0.3, 1) both;
   }
 
   .room-vignette {
@@ -108,45 +96,297 @@ select option {
     );
   }
 
+  /* ---- The candle ------------------------------------------------------
+     A flame that does not repeat.
+
+     ONE keyframe loop always reads as a pattern, however uneven its stops are,
+     because it comes back to the same place every N seconds and the eye picks
+     that up straight away. So the light is built from THREE nested layers, each
+     running its own irregular flicker on a period sharing no common factor with
+     the others. Their opacities multiply, and the combined pattern only truly
+     repeats after tens of minutes. That, not more keyframe stops, is what makes
+     it read as a flame. It is also why this cannot be a pseudo-element: ::before
+     gives you one box, and one box cannot carry three animations that all want
+     `opacity`.
+
+     Amplitude scales INVERSELY with the size of the light: a big soft wash
+     swinging as hard as a small flame makes the whole page throb, so the large
+     ones get the gentler `-soft` variants. */
+  .candle {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    translate: -50% -50%;
+    aspect-ratio: 1;
+    pointer-events: none;
+    animation:
+      ignite 1.7s cubic-bezier(0.16, 1, 0.3, 1) 0.3s both,
+      candle-swell 7.3s ease-in-out 2s infinite;
+  }
+  .candle-jitter {
+    display: block;
+    width: 100%;
+    height: 100%;
+    animation: candle-jitter 2.9s ease-in-out infinite;
+  }
+  .candle-light {
+    display: block;
+    width: 100%;
+    height: 100%;
+    border-radius: 9999px;
+    animation: candle-gutter 0.97s ease-in-out infinite;
+  }
+
+  /* The room light on the pages behind sign-in. Washes down from the top.
+
+     FIXED, and that is NOT the same mistake the embers made. A PARTICLE is an
+     object moving through the room: if it hangs still while the room slides past
+     it is obviously stuck to the glass, which is why the embers live in the page.
+     LIGHT is not an object, it is the room being lit. A light that scrolls away
+     with the page just leaves you reading in the dark below the fold, and the
+     whole point is that the room is candlelit wherever you happen to be looking.
+     So: particles in the page, illumination on the viewport.
+
+     This is the ONLY flickering light on /wishlist. It also briefly washed the
+     match card, and with the name breathing as a coal underneath it that was
+     simply too much moving in one place. One fire in the room, one coal in it. */
+  .candle--page {
+    position: fixed;
+    top: 0;
+    translate: -50% -38%;
+    width: min(150vw, 1400px);
+    z-index: 0;
+    animation:
+      ignite 1.7s cubic-bezier(0.16, 1, 0.3, 1) both,
+      candle-swell-soft 9.7s ease-in-out 1.6s infinite;
+  }
+  .candle--page .candle-jitter {
+    animation: candle-jitter-soft 4.1s ease-in-out infinite;
+  }
+  .candle--page .candle-light {
+    animation: candle-gutter-soft 1.43s ease-in-out infinite;
+    background: radial-gradient(
+      circle at center,
+      oklch(0.820 0.130 82 / 0.17) 0%,
+      oklch(0.680 0.100 82 / 0.07) 32%,
+      transparent 62%
+    );
+  }
+
+  /* Behind the landing hero. Anchored to the hero itself, which is the whole
+     page there: the landing is a single-screen doorway and does not scroll.
+     Its own periods, so it never falls into step with the page candle. */
+  .candle--hearth {
+    top: 40%;
+    width: min(92vw, 840px);
+    z-index: 0;
+    animation:
+      ignite 1.7s cubic-bezier(0.16, 1, 0.3, 1) both,
+      candle-swell-soft 8.9s ease-in-out 1.7s infinite;
+  }
+  .candle--hearth .candle-jitter {
+    animation: candle-jitter-soft 3.7s ease-in-out infinite;
+  }
+  .candle--hearth .candle-light {
+    animation: candle-gutter-soft 1.31s ease-in-out infinite;
+    background: radial-gradient(
+      circle at center,
+      oklch(0.820 0.130 82 / 0.34) 0%,
+      oklch(0.680 0.100 82 / 0.15) 30%,
+      transparent 64%
+    );
+  }
+
+  /* ---- Embers ---------------------------------------------------------- */
+
+  /* Drifting up through the firelight. The in-theme answer to snow: we are
+     inside by the fire, so the particle is warm and rises. Gone entirely under
+     reduced-motion. Transform + opacity only, so it stays off the main thread. */
+  .embers {
+    /* ABSOLUTE, not fixed. These are objects in the room, so they must move with
+       it; fixed pins them to the glass and gives the whole effect away. (The
+       light above is the opposite case, and the comment there explains why.) */
+    position: absolute;
+    inset: 0;
+    overflow: hidden;
+    /* Above the content (z-10), so they read on a phone where the cards cover
+       nearly the whole width. pointer-events:none is load-bearing: they sit over
+       the inputs and must never eat a tap or a caret placement. Verified by
+       tapping through them into a wishlist field and watching the autosave fire. */
+    pointer-events: none;
+    z-index: 20;
+  }
+
+  /* Two elements per ember on purpose. The outer owns the rise (drift, cooling
+     shrink, fade); the inner owns the flicker. They both want `opacity`, and one
+     element can only give it to one animation, so they nest rather than stack. */
+  .ember {
+    position: absolute;
+    opacity: 0;
+    animation-timing-function: linear;
+    animation-iteration-count: infinite;
+    will-change: transform, opacity;
+  }
+  .ember-core {
+    display: block;
+    width: 100%;
+    height: 100%;
+    border-radius: 9999px;
+    /* A hot core with a cooler halo. This is what makes it an ember and not a
+       dot: a flat circle this small reads as dust on the screen. Colour is set
+       per-ember so the field has hotter and cooler ones in it, all inside the
+       warm band the theme already owns. */
+    background-color: var(--ember-core);
+    box-shadow:
+      0 0 4px 1px var(--ember-glow),
+      0 0 14px 5px var(--ember-glow);
+    animation-name: ember-flicker;
+    animation-duration: var(--ember-flicker-dur);
+    animation-delay: var(--ember-flicker-delay);
+    animation-timing-function: ease-in-out;
+    animation-iteration-count: infinite;
+    animation-direction: alternate;
+    will-change: transform, opacity;
+  }
+
+  /* ---- The reveal ------------------------------------------------------ */
+
   .reveal {
     animation: rise-in 0.7s cubic-bezier(0.16, 1, 0.3, 1) both;
   }
 
-  /* Match-reveal hero moment (see DESIGN.md): a smaller echo of the hearth
-     glow behind "You are Secret Santa for" on /wishlist, the one place this
-     page is allowed to raise its voice. */
   .match-reveal {
     position: relative;
     animation: rise-in 0.6s cubic-bezier(0.16, 1, 0.3, 1) both;
   }
-  .match-reveal::before {
-    content: "";
-    position: absolute;
-    inset: -70% -15% auto -15%;
-    width: min(80vw, 520px);
-    aspect-ratio: 1;
-    background: radial-gradient(
-      circle at center,
-      oklch(0.820 0.130 82 / 0.55) 0%,
-      oklch(0.680 0.100 82 / 0.22) 35%,
-      transparent 65%
-    );
-    animation: ignite 1.7s cubic-bezier(0.16, 1, 0.3, 1) 0.15s both;
-    pointer-events: none;
-    z-index: 0;
-  }
+  /* The block-level bloom that used to live here is GONE. It was anchored off
+     the top of a full-width container (`inset: -70% ...`), which put its centre
+     well BELOW the name, so it lit the wishlist card rather than the name it was
+     meant to be behind. Harmless-looking while it sat still; obviously wrong the
+     moment it started to flicker. Nothing lights the name now, because the name
+     IS the light. */
   .match-reveal > * {
     position: relative;
     z-index: 1;
   }
 
-  /* The name scales up as a warm gold glow catches on it - the one moment this
-     page is allowed to raise its voice (chosen live from three reveal options). */
+  /* The coal.
+     A coal has no tempo. It sits at a slowly drifting temperature until a draught
+     catches it, and then it FLARES: a sharp rise, a slow fall, at intervals that
+     are not a beat. A smooth undulation on a short loop is a BREATH, and a breath
+     has a tempo, which is what makes it read as fake however pretty it is.
+
+     Two channels, on two properties, on two long periods that do not divide into
+     each other, so no loop is short enough for the eye to lock onto:
+
+       coal-flare  filter: brightness  19s  The draughts. Mostly quiet, punctuated
+                                            by sharp asymmetric flares (rise ~0.4s,
+                                            decay ~1.5s, the droop declared with a
+                                            per-keyframe ease-out AT each peak,
+                                            which governs the segment AFTER it).
+                                            Realism is the shape of the event, not
+                                            the length of the loop.
+       coal-heat   color               23s  The bulk temperature, drifting between a
+                                            cooling dull red and a hot orange. Slow
+                                            and smooth, because thermal mass IS slow.
+
+     The halo does NOT get a channel of its own, and must not: animating
+     `text-shadow` forces a layout every frame (see .coal). It does not need one.
+     The flare lives on the OUTER span, and `filter: brightness()` lifts the
+     rendered text-shadow along with the text, so the halo surges with every flare
+     for free. It also lifts the sparks: a coal that flares throws its sparks
+     brighter, and coupling them costs nothing.
+
+     Brightness bottoms out at 0.88, not lower: measured, that keeps the coldest
+     point of the coldest drift at ~4.4:1 on the card surface, still past the bar
+     for normal text and far past the 3:1 a 60px name needs. It cools; it never
+     becomes hard to read. */
   .match-reveal-name {
     display: inline-block;
-    animation: match-name-bloom 0.8s cubic-bezier(0.16, 1, 0.3, 1) both;
+    position: relative;
+    z-index: 1; /* keeps the glyphs above the sparks coming off them */
+    animation:
+      match-name-bloom 0.8s cubic-bezier(0.16, 1, 0.3, 1) both,
+      coal-flare 19s linear 0.8s infinite;
+  }
+  .coal {
+    /* The halo is STATIC, and that is a performance decision with no visual cost.
+       Measured: animating `text-shadow` forces Chrome to lay out every single
+       frame - 180 layouts in 3s against ZERO for an identical colour-only
+       animation - and it does so even when the blur radii never change, so
+       pinning them is not enough. The shadow has to stop animating.
+
+       Nothing is lost. The flare channel lives on the parent, and `filter:
+       brightness()` lifts the rendered text-shadow along with the text, so the
+       halo still surges with every flare. It just no longer keeps a third clock.
+
+       Declaring it here rather than only in keyframes also gives reduced-motion a
+       coal that is still LIT rather than one that has gone out. */
+    text-shadow:
+      0 0 18px oklch(0.700 0.200 35 / 0.34),
+      0 0 44px oklch(0.660 0.190 33 / 0.15);
+    animation: coal-heat 23s ease-in-out 0.8s infinite;
+  }
+
+  /* Sparks lifting off the name. This lives INSIDE the name span, not the
+     paragraph: the paragraph is a full-width block, so sparks positioned against
+     it would scatter across the whole card instead of coming off the letters.
+     The span is inline-block and carries a transform, so it is the containing
+     block, and `inset: 0` here means the name's own box.
+
+     z-index -1 puts them behind the glyphs, so the one piece of information this
+     entire app exists to deliver can never be obscured by its own decoration.
+     They stay inside the span's stacking context, so they do not fall through
+     the card behind it. */
+  .name-embers {
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    overflow: visible;
+    pointer-events: none;
+  }
+  .name-ember {
+    position: absolute;
+    border-radius: 9999px;
+    /* Literal OKLCH, matching every other rule in this file. The tokens carry an
+       `<alpha-value>` placeholder for Tailwind's opacity utilities, so pulling
+       them through theme() here is a good way to emit nothing at all. */
+    background-color: oklch(0.820 0.150 45);
+    box-shadow:
+      0 0 4px 1px oklch(0.700 0.200 35 / 0.70),
+      0 0 11px 3px oklch(0.660 0.190 33 / 0.35);
+    opacity: 0;
+    animation-timing-function: linear;
+    animation-iteration-count: infinite;
+    will-change: transform, opacity;
+  }
+
+  /* The sealed-match mark, before the draw is sent. Deliberately dimmer than the
+     reveal: the page is a low ember while you wait, and only lights up properly
+     when the name actually lands. */
+  .seal-mark {
+    position: relative;
+  }
+  .seal-mark::before {
+    content: "";
+    position: absolute;
+    inset: -45%;
+    background: radial-gradient(
+      circle at center,
+      oklch(0.820 0.130 82 / 0.22) 0%,
+      oklch(0.680 0.100 82 / 0.08) 40%,
+      transparent 68%
+    );
+    pointer-events: none;
+    z-index: 0;
+  }
+  .seal-mark > * {
+    position: relative;
+    z-index: 1;
   }
 }
+
+/* ---- Keyframes --------------------------------------------------------- */
 
 @keyframes ignite {
   from {
@@ -159,18 +399,207 @@ select option {
   }
 }
 
+@keyframes rise-in {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
 @keyframes match-name-bloom {
   0% {
     opacity: 0;
     transform: scale(0.86);
   }
-  55% {
-    text-shadow: 0 0 30px oklch(0.82 0.13 84 / 0.65);
-  }
   100% {
     opacity: 1;
     transform: scale(1);
-    text-shadow: 0 0 18px oklch(0.82 0.13 84 / 0.35);
+  }
+}
+
+/* The draughts. Mostly quiet, then a flare: a fast rise and a slow fall. The
+   ASYMMETRY is the whole thing. A symmetric swell is a breath; a fast-up,
+   slow-down spike is something catching fire. The `ease-out` declared at each
+   peak governs the segment AFTER it, giving the decay its exponential droop.
+   Stops are sparse and unevenly spaced, so there is no beat to find. */
+@keyframes coal-flare {
+  0% { filter: brightness(1); }
+  5% { filter: brightness(0.93); }
+  7% { filter: brightness(1.24); animation-timing-function: ease-out; }
+  15% { filter: brightness(1.01); }
+  23% { filter: brightness(0.9); }
+  30% { filter: brightness(0.96); }
+  32% { filter: brightness(1.17); animation-timing-function: ease-out; }
+  41% { filter: brightness(0.99); }
+  50% { filter: brightness(0.88); }
+  56% { filter: brightness(0.94); }
+  58% { filter: brightness(1.3); animation-timing-function: ease-out; }
+  68% { filter: brightness(1); }
+  76% { filter: brightness(0.91); }
+  83% { filter: brightness(0.97); }
+  85% { filter: brightness(1.13); animation-timing-function: ease-out; }
+  94% { filter: brightness(0.98); }
+  100% { filter: brightness(1); }
+}
+
+/* The bulk temperature. Slow, smooth, long: thermal mass does not twitch. This
+   is the channel that carries the coal between a dull cooling red and a hot
+   orange, and at 23s no one is ever going to hear a rhythm in it. */
+@keyframes coal-heat {
+  0% { color: oklch(0.700 0.200 35); }
+  14% { color: oklch(0.668 0.196 33); }
+  27% { color: oklch(0.742 0.188 39); }
+  39% { color: oklch(0.655 0.192 32); }
+  53% { color: oklch(0.775 0.176 43); }
+  64% { color: oklch(0.690 0.198 35); }
+  78% { color: oklch(0.648 0.190 32); }
+  89% { color: oklch(0.730 0.190 38); }
+  100% { color: oklch(0.700 0.200 35); }
+}
+
+/* The three flicker layers. Each is irregular on its own, and the periods share
+   no common factor, so the product of their opacities does not visibly repeat.
+   A candle gutters: small uneven jumps, the odd deeper dip from a draught, never
+   a clean sine. Each loop opens and closes on the same value, so there is no seam. */
+@keyframes candle-swell {
+  0% { opacity: 1; transform: scale(1); }
+  9% { opacity: 0.79; transform: scale(0.972); }
+  17% { opacity: 0.95; transform: scale(1.028); }
+  26% { opacity: 0.72; transform: scale(0.958); }
+  34% { opacity: 0.9; transform: scale(1.012); }
+  45% { opacity: 0.83; transform: scale(0.986); }
+  53% { opacity: 1; transform: scale(1.036); }
+  61% { opacity: 0.76; transform: scale(0.964); }
+  72% { opacity: 0.93; transform: scale(1.018); }
+  80% { opacity: 0.81; transform: scale(0.99); }
+  91% { opacity: 0.97; transform: scale(1.022); }
+  100% { opacity: 1; transform: scale(1); }
+}
+
+@keyframes candle-jitter {
+  0% { opacity: 1; }
+  11% { opacity: 0.86; }
+  20% { opacity: 0.98; }
+  29% { opacity: 0.8; }
+  38% { opacity: 0.94; }
+  49% { opacity: 0.83; }
+  58% { opacity: 1; }
+  67% { opacity: 0.88; }
+  79% { opacity: 0.81; }
+  88% { opacity: 0.96; }
+  100% { opacity: 1; }
+}
+
+@keyframes candle-gutter {
+  0% { opacity: 1; }
+  14% { opacity: 0.93; }
+  27% { opacity: 0.99; }
+  41% { opacity: 0.9; }
+  56% { opacity: 0.97; }
+  68% { opacity: 0.92; }
+  83% { opacity: 1; }
+  100% { opacity: 1; }
+}
+
+/* The big washes. Same gutter, gentler, or the whole page throbs. */
+@keyframes candle-swell-soft {
+  0% { opacity: 1; transform: scale(1); }
+  12% { opacity: 0.91; transform: scale(0.992); }
+  23% { opacity: 0.99; transform: scale(1.012); }
+  31% { opacity: 0.86; transform: scale(0.985); }
+  44% { opacity: 0.96; transform: scale(1.006); }
+  57% { opacity: 0.89; transform: scale(0.995); }
+  69% { opacity: 1; transform: scale(1.015); }
+  78% { opacity: 0.88; transform: scale(0.99); }
+  89% { opacity: 0.97; transform: scale(1.004); }
+  100% { opacity: 1; transform: scale(1); }
+}
+
+@keyframes candle-jitter-soft {
+  0% { opacity: 1; }
+  13% { opacity: 0.94; }
+  26% { opacity: 1; }
+  37% { opacity: 0.9; }
+  52% { opacity: 0.97; }
+  64% { opacity: 0.92; }
+  81% { opacity: 0.99; }
+  100% { opacity: 1; }
+}
+
+@keyframes candle-gutter-soft {
+  0% { opacity: 1; }
+  18% { opacity: 0.96; }
+  35% { opacity: 1; }
+  49% { opacity: 0.95; }
+  71% { opacity: 0.99; }
+  100% { opacity: 1; }
+}
+
+/* Sparks lifting off the name. Short lives, ~100px, then out. Three paths so
+   they do not all trace the same line. */
+@keyframes name-ember-a {
+  0% { transform: translate3d(0, 0, 0) scale(1); opacity: 0; }
+  15% { opacity: 0.9; }
+  100% { transform: translate3d(9px, -92px, 0) scale(0.3); opacity: 0; }
+}
+
+@keyframes name-ember-b {
+  0% { transform: translate3d(0, 0, 0) scale(1); opacity: 0; }
+  18% { opacity: 0.75; }
+  100% { transform: translate3d(-12px, -116px, 0) scale(0.25); opacity: 0; }
+}
+
+@keyframes name-ember-c {
+  0% { transform: translate3d(0, 0, 0) scale(1); opacity: 0; }
+  12% { opacity: 1; }
+  55% { transform: translate3d(7px, -56px, 0) scale(0.7); opacity: 0.6; }
+  100% { transform: translate3d(-6px, -104px, 0) scale(0.2); opacity: 0; }
+}
+
+/* The page embers. Three paths, not one: a single shared keyframe makes every
+   particle trace the identical line, and that is the tell that gives a particle
+   field away as code. Each drifts differently, cools at its own rate, and dies
+   at a different height.
+
+   Travel is in px, not vh: these live in the page, not the viewport, so a
+   viewport-relative distance would mean nothing. ~300px over ~18s, about 17px a
+   second, which is a drift rather than a launch. The shrink is the ember cooling
+   as it climbs; it goes out rather than sailing off the top. */
+@keyframes ember-rise-a {
+  0% { transform: translate3d(0, 0, 0) scale(1); opacity: 0; }
+  12% { opacity: 1; }
+  60% { transform: translate3d(16px, -155px, 0) scale(0.82); opacity: 0.8; }
+  100% { transform: translate3d(-7px, -300px, 0) scale(0.45); opacity: 0; }
+}
+
+@keyframes ember-rise-b {
+  0% { transform: translate3d(0, 0, 0) scale(1); opacity: 0; }
+  16% { opacity: 0.85; }
+  55% { transform: translate3d(-19px, -125px, 0) scale(0.78); opacity: 0.6; }
+  100% { transform: translate3d(9px, -255px, 0) scale(0.4); opacity: 0; }
+}
+
+@keyframes ember-rise-c {
+  0% { transform: translate3d(0, 0, 0) scale(1); opacity: 0; }
+  10% { opacity: 0.95; }
+  45% { transform: translate3d(13px, -115px, 0) scale(0.88); opacity: 0.85; }
+  75% { transform: translate3d(-11px, -205px, 0) scale(0.65); opacity: 0.45; }
+  100% { transform: translate3d(5px, -330px, 0) scale(0.35); opacity: 0; }
+}
+
+/* Each ember breathes as it burns, out of step with the others. */
+@keyframes ember-flicker {
+  0% {
+    opacity: 0.5;
+    transform: scale(0.8);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1.1);
   }
 }
 
@@ -182,5 +611,15 @@ select option {
     animation-iteration-count: 1 !important;
     transition-duration: 0.001ms !important;
     scroll-behavior: auto !important;
+  }
+
+  /* The blanket rule above would freeze the embers mid-drift rather than remove
+     them. Perpetual ambient motion is the thing reduced-motion users are asking
+     us not to run, so take them out of the page entirely. The candle and the
+     name keep their light; they simply stop moving, which is a colour, not an
+     animation. */
+  .embers,
+  .name-embers {
+    display: none;
   }
 }

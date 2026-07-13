@@ -2,6 +2,9 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import Candle from "../Candle";
+import Embers from "../Embers";
+import NameEmbers from "../NameEmbers";
 
 interface WishlistItem {
   id?: string;
@@ -352,8 +355,14 @@ export default function Wishlist() {
   }
 
   return (
-    <div className="min-h-[100svh] bg-canvas p-4 md:p-8">
-      <div className="mx-auto max-w-6xl">
+    <div className="relative min-h-[100svh] bg-canvas p-4 md:p-8">
+      {/* The candlelit room, carried in from the landing. Everything here is
+          decorative, behind the content, and inert to the pointer. */}
+      <Candle tone="page" />
+      <div className="room-vignette" aria-hidden />
+      <Embers />
+
+      <div className="relative z-10 mx-auto max-w-6xl">
         {draws.length > 1 && (
           <div className="mb-6 flex flex-wrap gap-2" role="tablist" aria-label="Your draws">
             {draws.map((d) => {
@@ -407,18 +416,32 @@ export default function Wishlist() {
         <div className="grid grid-cols-1 gap-8 lg:grid-cols-2">
           {/* My Wishlist */}
           <div className="order-2 rounded-md border border-border bg-surface p-6 shadow-elev-1 lg:order-1">
-            <h2 className="mb-4 text-xl font-semibold text-ink-strong">My Wishlist</h2>
-            <p className="mb-4 text-sm text-ink-muted">Add up to 5 items you&apos;d like to receive. They save automatically.</p>
+            {/* A hairline rule above the title, like the letterhead on a card. Same
+                gold hairline the app already uses as a mark elsewhere. */}
+            <div className="mb-4 h-px w-10 bg-accent-dim" />
+            <h2 className="mb-3 text-xl font-semibold text-ink-strong">My Wishlist</h2>
+            <p className="mb-5 text-pretty text-sm text-ink-muted">
+              Up to five things you&apos;d love. Whoever has your name will see this list, and it
+              saves as you type.
+            </p>
 
             <div className="space-y-4">
               {items.map((item, index) => (
                 <div key={index} className="rounded-md border border-border bg-raised p-4">
-                  <div className="mb-2 flex items-center justify-between">
-                    <span className="text-sm font-medium text-accent-text">Item {index + 1}</span>
+                  <div className="mb-3 flex items-center justify-between">
+                    {/* The numeral set in the display serif, the way a hand-written list
+                        is numbered. "Item" is kept for screen readers, not printed. */}
+                    <span className="font-display text-lg leading-none text-accent-text">
+                      <span className="sr-only">Item </span>
+                      {index + 1}
+                    </span>
                     {items.length > 1 && (
                       <button
                         onClick={() => handleRemoveItem(index)}
-                        className="text-sm text-danger hover:text-danger/80"
+                        aria-label={`Remove item ${index + 1}`}
+                        /* Quiet until you reach for it. In red by default it was the
+                           loudest thing in the card, out-shouting the item numeral. */
+                        className="text-sm text-ink-muted transition-colors hover:text-danger"
                       >
                         Remove
                       </button>
@@ -472,7 +495,9 @@ export default function Wishlist() {
           </div>
 
           {/* Secret Santa Assignment */}
-          <div className="order-1 rounded-md border border-border bg-surface p-6 shadow-elev-1 lg:order-2">
+          {/* flex column so the sealed state can sit centred in the card rather than
+              stuck to the top with dead space under it when the other column is taller */}
+          <div className="order-1 flex flex-col rounded-md border border-border bg-surface p-6 shadow-elev-1 lg:order-2">
             <h2 className="mb-4 text-xl font-semibold text-ink-strong">Your Secret Santa</h2>
 
             {assignment ? (
@@ -482,8 +507,14 @@ export default function Wishlist() {
                     You are Secret Santa for
                   </p>
                   <p className="font-display text-5xl leading-[1.05] tracking-[-0.02em] text-ink-strong sm:text-6xl">
-                    <span className="match-reveal-name text-accent-text">
-                      {assignment.receiver.name}
+                    {/* Two spans, not one. The outer carries the flare (a brightness
+                        filter), which lifts the sparks along with the name, because a
+                        coal that flares throws its sparks brighter. The inner carries
+                        the colour and the halo. One element cannot hand the same
+                        property to two animations, so the channels have to be split. */}
+                    <span className="match-reveal-name text-ember">
+                      <span className="coal">{assignment.receiver.name}</span>
+                      <NameEmbers />
                     </span>
                   </p>
                 </div>
@@ -542,13 +573,51 @@ export default function Wishlist() {
                 )}
               </div>
             ) : (
-              <div className="py-8 text-center">
-                <div className="mx-auto mb-4 h-px w-10 bg-accent-dim" />
-                <p className="text-ink-strong">
-                  Secret Santa assignments haven&apos;t been generated yet.
+              /* Before the draw, this card is what most of the family looks at for
+                 weeks. It used to say "assignments haven't been generated yet",
+                 which is true and dead. A sealed letter says the same thing and
+                 gives them something to wait for; the light here is deliberately
+                 lower than .match-reveal, so the page brightens when the name lands. */
+              <div className="reveal flex flex-1 flex-col justify-center py-6 text-center">
+                <div className="seal-mark mx-auto mb-6 w-fit">
+                  <svg viewBox="0 0 120 96" className="h-24 w-auto" fill="none" aria-hidden="true">
+                    <rect
+                      x="16"
+                      y="20"
+                      width="88"
+                      height="58"
+                      rx="6"
+                      className="stroke-accent-dim"
+                      strokeWidth="1.5"
+                    />
+                    <path
+                      d="M17.5 23 L60 55 L102.5 23"
+                      className="stroke-accent-dim"
+                      strokeWidth="1.5"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    />
+                    {/* the wax seal, with the same evergreen the landing uses as its mark */}
+                    <circle
+                      cx="60"
+                      cy="55"
+                      r="16"
+                      className="fill-accent/15 stroke-accent"
+                      strokeWidth="1.5"
+                    />
+                    <circle cx="60" cy="55" r="12" className="stroke-accent/40" strokeWidth="1" />
+                    <path d="M60 45.5 L65.5 54 H54.5 Z" className="fill-accent-text" />
+                    <path d="M60 51 L68 62 H52 Z" className="fill-accent-text" />
+                    <rect x="59" y="62" width="2" height="4" rx="0.5" className="fill-accent-text" />
+                  </svg>
+                </div>
+
+                <p className="font-display text-2xl tracking-[-0.02em] text-ink-strong sm:text-3xl">
+                  Your match is sealed
                 </p>
-                <p className="mt-2 text-sm text-ink-muted">
-                  Check back later or contact the admin!
+                <p className="mx-auto mt-3 max-w-sm text-pretty text-sm text-ink-muted">
+                  The draw hasn&apos;t been run yet. When it is, this is where you&apos;ll find out
+                  who you&apos;re buying for. Add to your wishlist in the meantime.
                 </p>
               </div>
             )}
@@ -659,7 +728,7 @@ export default function Wishlist() {
                     </div>
                     <button
                       onClick={() => handleRemoveSuggestion(s.id)}
-                      className="shrink-0 text-sm text-danger hover:text-danger/80"
+                      className="shrink-0 text-sm text-ink-muted transition-colors hover:text-danger"
                     >
                       Remove
                     </button>
