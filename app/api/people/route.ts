@@ -4,6 +4,7 @@ import { generatePersonalLinkToken, isValidEmail, normalizeEmail } from "@/lib/u
 import { getSession } from "@/lib/session";
 import { findEmailHolders, linkAcknowledged } from "@/lib/people";
 import { getActiveYear } from "@/lib/rounds";
+import { getVisitSummaries } from "@/lib/visits";
 
 // GET all people for a group
 export async function GET(request: NextRequest) {
@@ -24,62 +25,46 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
-    const people = await prisma.person.findMany({
-      where: { groupId },
-      include: {
-        wishlistItems: {
-          orderBy: { order: "asc" },
-        },
-        _count: {
-          select: { wishlistItems: true, suggestionsBy: true },
-        },
-      },
-      orderBy: { createdAt: "desc" },
-    });
-
+    // Independent queries, so they go together (same as GET /api/assignments).
+    //
     // getActiveYear THROWS when the group is gone. Today this route answers 200 + [] for a
     // stale groupId (a second admin tab still holding a draw the Danger zone just deleted);
     // letting it throw would turn that into a 500 and silently blank the roster.
-    let year: number | null = null;
-    try {
-      year = await getActiveYear(groupId);
-    } catch {
-      year = null;
-    }
+    const [people, year] = await Promise.all([
+      prisma.person.findMany({
+        where: { groupId },
+        include: {
+          wishlistItems: {
+            orderBy: { order: "asc" },
+          },
+          _count: {
+            select: { wishlistItems: true, suggestionsBy: true },
+          },
+        },
+        orderBy: { createdAt: "desc" },
+      }),
+      getActiveYear(groupId).catch(() => null),
+    ]);
 
-    // One query, not two aggregates. At roughly a thousand rows a season there is nothing
-    // to avoid pulling, and reading the rows lets all three numbers fall out of a single
-    // pass - which also means one fewer lock taken against a single-file SQLite database.
-    //
     // Year-scoped, because rollover wipes wishlists and suggestions. A lifetime total would
     // quietly fold last Christmas into this one's picture.
-    const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
-    const visits =
+    const summaries =
       year === null
-        ? []
-        : await prisma.visit.findMany({
-            where: { personId: { in: people.map((p) => p.id) }, year },
-            select: { personId: true, createdAt: true },
-          });
+        ? new Map()
+        : await getVisitSummaries(
+            people.map((person) => person.id),
+            year
+          );
 
-    const agg = new Map<string, { count: number; last: Date | null; recent: number }>();
-    for (const visit of visits) {
-      const a = agg.get(visit.personId) ?? { count: 0, last: null, recent: 0 };
-      a.count += 1;
-      if (!a.last || visit.createdAt > a.last) a.last = visit.createdAt;
-      if (visit.createdAt > sevenDaysAgo) a.recent += 1;
-      agg.set(visit.personId, a);
-    }
-
-    // Zero, never undefined. Someone who has never opened their link is the single most
-    // important row on this dashboard, so they must serialise as a real 0.
+    // Zero and null, never undefined. Someone who has never opened their link is the single
+    // most important row on this dashboard, so absence must serialise as a real 0.
     const withVisits = people.map((person) => {
-      const a = agg.get(person.id);
+      const summary = summaries.get(person.id);
       return {
         ...person,
-        visitCount: a?.count ?? 0,
-        lastVisitAt: a?.last ?? null,
-        recentVisits: a?.recent ?? 0,
+        visitCount: summary?.visitCount ?? 0,
+        lastVisitAt: summary?.lastVisitAt ?? null,
+        recentVisits: summary?.recentVisits ?? 0,
       };
     });
 

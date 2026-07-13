@@ -156,9 +156,16 @@ model Suggestion {
 // rows that exist because someone wanted them. A visit leaves no such row behind.
 //
 // `bucket` is floor(epochMs / VISIT_DEBOUNCE_MS) and carries the debounce: see the unique
-// key below and the long comment in lib/visits.ts. `year` is denormalised the same way
-// Assignment.year is, because rollover wipes wishlists and suggestions, and a lifetime
-// total would quietly fold last Christmas into this one's picture.
+// key below and the long comment in lib/visits.ts.
+//
+// `year` is a SNAPSHOT of Group.year (via getActiveYear) taken at visit time. Note this is a
+// weaker guarantee than Assignment.year, which is written together with its roundId inside
+// the generate transaction: a Visit has no FK to Round, and visits routinely exist for a year
+// before any Round row for that year does (rollover bumps Group.year immediately, while Round
+// is only materialised lazily by ensureRound). It is stored because rollover wipes wishlists
+// and suggestions, so a lifetime total would quietly fold last Christmas into this one's
+// picture. Read it back the same way it was written - filtered on the active year - and do
+// not assume it is backed by a Round.
 model Visit {
   id        String   @id @default(cuid())
   personId  String
@@ -167,6 +174,10 @@ model Visit {
   createdAt DateTime @default(now())
   person    Person   @relation(fields: [personId], references: [id], onDelete: Cascade)
 
-  @@unique([personId, bucket]) // one visit per person per half hour, enforced by the DB
-  @@index([personId, createdAt])
+  // One visit per person per half hour, enforced by the database rather than by a
+  // read-then-write. This index also serves the dashboard's read (WHERE personId IN (...)),
+  // which is why there is no separate index on createdAt: EXPLAIN QUERY PLAN confirms SQLite
+  // picks this one, so another index would be write cost on the participant hot path for a
+  // read that never uses it.
+  @@unique([personId, bucket])
 }

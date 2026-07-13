@@ -154,6 +154,11 @@ export default function AdminDashboard() {
 
   const sentOn = round?.sentAt ? new Date(round.sentAt).toLocaleDateString() : null;
 
+  // When the draw actually went out. Parsed once here rather than per row, and used by the
+  // Activity section to spot anyone who has not been back since (they do not know who they
+  // got). Null until Send, which is what keeps that flag quiet beforehand.
+  const sentAt = round?.sentAt ? new Date(round.sentAt) : null;
+
   // Full shareable participant link. Uses NEXT_PUBLIC_APP_URL when set (e.g.
   // https://santa.north.cx), otherwise auto-detects the current site origin in
   // the browser - so the copied link always points where the admin is viewing.
@@ -2193,14 +2198,16 @@ export default function AdminDashboard() {
               </p>
               <div className="space-y-2">
                 {people.map((person) => {
-                  const neverOpened = person.visitCount === 0;
+                  // The API fills visitCount and lastVisitAt from the same row, so a null
+                  // timestamp IS "never opened". Discriminating on it rather than on
+                  // visitCount lets TypeScript narrow it for the branch below, instead of
+                  // asserting past the type checker on a cross-field invariant.
+                  const lastVisit = person.lastVisitAt;
+
                   // Only meaningful once the draw is out: before that there is nothing to
-                  // have missed. `sentAt` is null until Send, so this stays quiet.
+                  // have missed. sentAt is null until Send, so this stays quiet.
                   const notBackSinceSent =
-                    !!round?.sentAt &&
-                    !neverOpened &&
-                    !!person.lastVisitAt &&
-                    new Date(person.lastVisitAt) < new Date(round.sentAt);
+                    sentAt !== null && lastVisit !== null && new Date(lastVisit) < sentAt;
 
                   return (
                     <div
@@ -2209,7 +2216,7 @@ export default function AdminDashboard() {
                     >
                       <span className="text-sm text-ink-strong">{person.name}</span>
 
-                      {neverOpened ? (
+                      {lastVisit === null ? (
                         <span className="text-sm font-semibold text-danger">
                           Never opened their link
                         </span>
@@ -2218,8 +2225,8 @@ export default function AdminDashboard() {
                           {notBackSinceSent && (
                             <span className="font-semibold text-danger">Not seen their match</span>
                           )}
-                          <span title={new Date(person.lastVisitAt!).toLocaleString()}>
-                            Last in {timeAgo(person.lastVisitAt!)}
+                          <span title={new Date(lastVisit).toLocaleString()}>
+                            Last in {timeAgo(lastVisit)}
                           </span>
                           <span>{person.visitCount} visits</span>
                           <span>{person.recentVisits} in the last 7 days</span>

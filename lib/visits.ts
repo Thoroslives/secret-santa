@@ -24,6 +24,10 @@ import { prisma } from "@/lib/db";
 // way this number is wrong.
 export const VISIT_DEBOUNCE_MS = 30 * 60 * 1000;
 
+// "Recent" on the dashboard. Coarse on purpose: the admin is asking "are they still around",
+// not "exactly how often".
+export const RECENT_VISIT_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
+
 export async function recordVisit(personId: string, year: number): Promise<void> {
   try {
     await prisma.visit.create({
@@ -39,4 +43,51 @@ export async function recordVisit(personId: string, year: number): Promise<void>
     // member who did in fact open it. A visible error beats a plausible lie.
     console.error("Failed to record visit:", error);
   }
+}
+
+export interface VisitSummary {
+  visitCount: number;
+  lastVisitAt: Date | null;
+  recentVisits: number;
+}
+
+// The read side, living next to the write it summarises (the same way lib/rounds.ts keeps
+// ensureRound and getRound together).
+//
+// ONE query, not two or three DB-side aggregates. At roughly a thousand rows a season there
+// is nothing to avoid pulling, and a single pass over the rows yields all three numbers -
+// which also means one fewer lock taken against a single-file SQLite database.
+//
+// Callers get a Map with no entry for someone who has never visited. That is deliberate: the
+// caller decides what absence means, and on the dashboard it must render as a real 0, never
+// as "no data". Someone who has never opened their link is the most important row on the page.
+export async function getVisitSummaries(
+  personIds: string[],
+  year: number
+): Promise<Map<string, VisitSummary>> {
+  const visits = await prisma.visit.findMany({
+    where: { personId: { in: personIds }, year },
+    select: { personId: true, createdAt: true },
+  });
+
+  const recentSince = new Date(Date.now() - RECENT_VISIT_WINDOW_MS);
+  const summaries = new Map<string, VisitSummary>();
+
+  for (const visit of visits) {
+    const summary = summaries.get(visit.personId) ?? {
+      visitCount: 0,
+      lastVisitAt: null,
+      recentVisits: 0,
+    };
+
+    summary.visitCount += 1;
+    if (!summary.lastVisitAt || visit.createdAt > summary.lastVisitAt) {
+      summary.lastVisitAt = visit.createdAt;
+    }
+    if (visit.createdAt > recentSince) summary.recentVisits += 1;
+
+    summaries.set(visit.personId, summary);
+  }
+
+  return summaries;
 }
