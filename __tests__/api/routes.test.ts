@@ -627,7 +627,8 @@ describe('PATCH /api/groups/[id]', () => {
 // 5. GET /p/[token]
 // durable personal-link login (Task 6). Replaces the old login-code POST -
 // visiting this URL is the only way in; a hit sets the session and redirects
-// straight to /wishlist, a miss bounces to /login?error=invalid-link.
+// straight to /wishlist, a miss bounces to the landing at /?error=invalid-link
+// (the landing is the only sign-in page; /login was consolidated into it).
 // ===========================================================================
 describe('GET /p/[token]', () => {
   const makeParams = (token: string) => ({ params: { token } });
@@ -664,14 +665,17 @@ describe('GET /p/[token]', () => {
     expect(res.headers.get('location')).toContain('/wishlist');
   });
 
-  it('redirects to /login?error=invalid-link when the token has no active match', async () => {
+  it('redirects to the landing at /?error=invalid-link when the token has no active match', async () => {
     mockPrismaDb.person.findFirst.mockResolvedValue(null);
 
     const req = makeGetRequest('http://localhost:3000/p/does-not-exist');
     const res = await personalLinkLogin(req, makeParams('does-not-exist') as any);
 
     expect(res.status).toBe(307);
-    expect(res.headers.get('location')).toContain('/login?error=invalid-link');
+    // Exact, not toContain: '/login?error=invalid-link' would also satisfy a
+    // toContain('/?error=...')-style check on some inputs, and the whole point of
+    // this change is that the old target is gone.
+    expect(res.headers.get('location')).toBe('/?error=invalid-link');
     expect(mockSession.save).not.toHaveBeenCalled();
   });
 });

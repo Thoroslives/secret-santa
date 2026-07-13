@@ -16,10 +16,13 @@ export async function GET(
   });
 
   if (!person) {
+    // Back to the landing, which is the only sign-in page: it already hosts this
+    // same form, and PRODUCT.md gives it the job ("the public page welcomes and
+    // signs you in"). It reads ?error and shows a small banner above the form.
     // Relative redirect (see below) - resolve against the browser's origin.
     return new NextResponse(null, {
       status: 307,
-      headers: { Location: "/login?error=invalid-link" },
+      headers: { Location: "/?error=invalid-link" },
     });
   }
 

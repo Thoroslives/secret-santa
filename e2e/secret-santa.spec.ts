@@ -30,30 +30,56 @@ test.describe("Home Page", () => {
 // page was already removed in the P4 follow-ups (group creation is admin-only via
 // the dashboard, covered by the POST /api/groups/create tests + the Full Flow below).
 
-test.describe("Participant Sign-In (/login, email link)", () => {
-  test("shows the email sign-in form", async ({ page }) => {
+// The landing IS the sign-in page. /login used to be a second one hosting this
+// same <SignInForm/>; it was consolidated away, because nothing linked to it and
+// PRODUCT.md already gives the landing the job ("the public page welcomes and
+// signs you in").
+test.describe("Participant Sign-In (landing, email link)", () => {
+  test("/login redirects to the landing rather than 404ing an old bookmark", async ({
+    page,
+  }) => {
     await page.goto("/login");
-    await expect(
-      page.getByRole("heading", { name: /Welcome back/i })
-    ).toBeVisible();
+    await expect(page).toHaveURL(/\/$/);
+    // Landed somewhere that can actually sign you in, not just any 200.
     await expect(page.getByLabel(/Your email/i)).toBeVisible();
-    await expect(
-      page.getByRole("button", { name: /Email me my link/i })
-    ).toBeVisible();
   });
 
   test("shows the invalid-link banner on ?error=invalid-link", async ({
     page,
   }) => {
-    await page.goto("/login?error=invalid-link");
+    await page.goto("/?error=invalid-link");
     // Assert the banner's own copy rather than role=alert - next dev injects its
     // own role=alert overlay container, so the role match is ambiguous in dev.
-    await expect(page.getByText(/didn.t work anymore/i)).toBeVisible();
+    await expect(page.getByText(/didn.t work/i)).toBeVisible();
   });
 
+  // The landing is a single-screen doorway. Without the banner it lands at EXACTLY
+  // the viewport height (measured, on both sizes below), so it carries no slack and
+  // the banner will tip it into scrolling unless the padding gives way. It did, once:
+  // +29px at 720. Both sizes are pinned because the phone case passed while the short
+  // laptop broke, and a test that only checked one would have shipped it.
+  for (const vp of [
+    { name: "phone", width: 390, height: 844 },
+    { name: "short laptop", width: 1280, height: 720 },
+  ]) {
+    test(`the banner does not cost the doorway its single screen (${vp.name})`, async ({
+      page,
+    }) => {
+      await page.setViewportSize({ width: vp.width, height: vp.height });
+      await page.goto("/?error=invalid-link");
+      await expect(page.getByText(/didn.t work/i)).toBeVisible();
+
+      const { content, viewport } = await page.evaluate(() => ({
+        content: document.documentElement.scrollHeight,
+        viewport: window.innerHeight,
+      }));
+      expect(content).toBeLessThanOrEqual(viewport + 1);
+    });
+  }
+
   test("does not show the banner without the error param", async ({ page }) => {
-    await page.goto("/login");
-    await expect(page.getByText(/didn.t work anymore/i)).toHaveCount(0);
+    await page.goto("/");
+    await expect(page.getByText(/didn.t work/i)).toHaveCount(0);
   });
 
   test("sends the link and shows confirmation (email-only, no groupId)", async ({
@@ -74,18 +100,11 @@ test.describe("Participant Sign-In (/login, email link)", () => {
       });
     });
 
-    await page.goto("/login");
+    await page.goto("/");
     await page.getByLabel(/Your email/i).fill("test@example.com");
     await page.getByRole("button", { name: /Email me my link/i }).click();
 
     await expect(page.getByText(/Check your email/i)).toBeVisible();
-  });
-
-  test("has back to home link", async ({ page }) => {
-    await page.goto("/login");
-    await expect(
-      page.getByRole("link", { name: /Back to home/i })
-    ).toBeVisible();
   });
 });
 

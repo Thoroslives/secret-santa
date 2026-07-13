@@ -83,13 +83,13 @@ The bundled `docker-compose.yml` is a minimal single-service starter (SQLite vol
 
 1. Go to `/admin` and login with your admin password
 2. Add family members to the system (each gets a durable personal login link)
-3. Share each person's personal link with them (or trigger the self-service email resend from `/login`)
+3. Share each person's personal link with them (or trigger the self-service email resend from the landing page)
 4. Once everyone has added their wishlist, click "Generate Assignments" to create Secret Santa pairs
 5. View all assignments to verify everything worked
 
 ### For Participants
 
-1. Visit your personal link (`/p/<token>`), or go to `/login` to request one by email
+1. Visit your personal link (`/p/<token>`), or go to the landing page to request one by email
 2. Add 3-5 items to your wishlist with links
 3. Save your wishlist
 4. View your Secret Santa assignment to see who you're buying for
