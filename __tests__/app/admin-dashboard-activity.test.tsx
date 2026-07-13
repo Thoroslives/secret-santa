@@ -71,6 +71,17 @@ it("shows visits and last seen for someone who has been in", async () => {
   expect(screen.getByText(/2 in the last 7 days/i)).toBeInTheDocument();
 });
 
+it("says '1 visit', not '1 visits'", async () => {
+  installFetch([
+    person("a", { name: "Alice", visitCount: 1, recentVisits: 1, lastVisitAt: daysAgo(0) }),
+  ]);
+  render(<AdminDashboard />);
+
+  await screen.findByText("Activity");
+  expect(screen.getByText("1 visit")).toBeInTheDocument();
+  expect(screen.queryByText("1 visits")).not.toBeInTheDocument();
+});
+
 it("calls out someone who has never opened their link", async () => {
   installFetch([
     person("b", { name: "Bob", visitCount: 0, recentVisits: 0, lastVisitAt: null }),

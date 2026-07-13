@@ -2225,10 +2225,14 @@ export default function AdminDashboard() {
                           {notBackSinceSent && (
                             <span className="font-semibold text-danger">Not seen their match</span>
                           )}
+                          {/* "Last seen" works with every timeAgo value; "Last in" does not
+                              ("Last in yesterday", "Last in 3 days ago"). */}
                           <span title={new Date(lastVisit).toLocaleString()}>
-                            Last in {timeAgo(lastVisit)}
+                            Last seen {timeAgo(lastVisit)}
                           </span>
-                          <span>{person.visitCount} visits</span>
+                          <span>
+                            {person.visitCount} {person.visitCount === 1 ? "visit" : "visits"}
+                          </span>
                           <span>{person.recentVisits} in the last 7 days</span>
                         </span>
                       )}
