@@ -881,8 +881,9 @@ describe('GET /api/people', () => {
     expect(mockPrismaDb.visit.findMany.mock.calls[0][0].where).toMatchObject({ year: 2026 });
   });
 
-  // getActiveYear THROWS when the group is gone. A second admin tab still holding a draw
-  // that the Danger zone just deleted must not turn this route from a 200 into a 500.
+  // A second admin tab still holding a draw that the Danger zone just deleted must not turn
+  // this route from a 200 into a 500. Deleting a group cascades its people away, so an empty
+  // roster IS the deleted-group signal - the route never needs to ask for the year at all.
   it('still returns 200 when the group has been deleted underneath us', async () => {
     (getActiveYear as jest.Mock).mockRejectedValue(new Error('Group group-1 not found'));
     mockPrismaDb.person.findMany.mockResolvedValue([]);
@@ -891,6 +892,27 @@ describe('GET /api/people', () => {
 
     expect(res.status).toBe(200);
     expect((await res.json()).people).toEqual([]);
+    // It must not have needed to swallow anything to get there.
+    expect(getActiveYear).not.toHaveBeenCalled();
+  });
+
+  // THE LIE THIS ROUTE MUST NEVER TELL. getActiveYear throws for "group not found", but it
+  // also throws for any database error - SQLITE_BUSY above all, which is likeliest exactly
+  // when the admin is watching this page. A blanket .catch(() => null) would produce zero
+  // summaries and render a confident "Never opened their link" against the WHOLE FAMILY,
+  // silently. Fail loudly instead: a visible error beats a plausible lie.
+  it('fails loudly rather than reporting the whole roster as never having visited', async () => {
+    const spy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    mockPrismaDb.person.findMany.mockResolvedValue([
+      { id: 'p-1', name: 'Alice', wishlistItems: [], _count: { wishlistItems: 0, suggestionsBy: 0 } },
+    ]);
+    (getActiveYear as jest.Mock).mockRejectedValue(new Error('SQLITE_BUSY: database is locked'));
+
+    const res = await getPeople(makeGetRequest('http://localhost:3000/api/people?groupId=group-1'));
+
+    expect(res.status).toBe(500);
+    expect(spy).toHaveBeenCalled();
+    spy.mockRestore();
   });
 
   it('forbids a participant listing people (would leak durable login tokens)', async () => {

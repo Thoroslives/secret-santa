@@ -4,7 +4,7 @@ import { generatePersonalLinkToken, isValidEmail, normalizeEmail } from "@/lib/u
 import { getSession } from "@/lib/session";
 import { findEmailHolders, linkAcknowledged } from "@/lib/people";
 import { getActiveYear } from "@/lib/rounds";
-import { getVisitSummaries } from "@/lib/visits";
+import { getVisitSummaries, type VisitSummary } from "@/lib/visits";
 
 // GET all people for a group
 export async function GET(request: NextRequest) {
@@ -25,36 +25,42 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
-    // Independent queries, so they go together (same as GET /api/assignments).
-    //
-    // getActiveYear THROWS when the group is gone. Today this route answers 200 + [] for a
-    // stale groupId (a second admin tab still holding a draw the Danger zone just deleted);
-    // letting it throw would turn that into a 500 and silently blank the roster.
-    const [people, year] = await Promise.all([
-      prisma.person.findMany({
-        where: { groupId },
-        include: {
-          wishlistItems: {
-            orderBy: { order: "asc" },
-          },
-          _count: {
-            select: { wishlistItems: true, suggestionsBy: true },
-          },
+    const people = await prisma.person.findMany({
+      where: { groupId },
+      include: {
+        wishlistItems: {
+          orderBy: { order: "asc" },
         },
-        orderBy: { createdAt: "desc" },
-      }),
-      getActiveYear(groupId).catch(() => null),
-    ]);
+        _count: {
+          select: { wishlistItems: true, suggestionsBy: true },
+        },
+      },
+      orderBy: { createdAt: "desc" },
+    });
 
+    // No people, no visits to summarise - and an empty roster is ALSO what a deleted group
+    // looks like, because deleting one cascades its people away. That is what keeps this
+    // route a 200 for a stale groupId (a second admin tab still holding a draw the Danger
+    // zone just deleted) WITHOUT swallowing errors to get there.
+    //
+    // It is deliberately NOT `getActiveYear(groupId).catch(() => null)`. getActiveYear throws
+    // for the modelled "group not found" case, but it also throws for any database error -
+    // SQLITE_BUSY above all, which is likeliest exactly when the admin is watching this page
+    // (they hit Send, the family opens their email at once, and the writer lock contends).
+    // Catching everything would set year = null, produce zero summaries, and render a
+    // confident "Never opened their link" AGAINST THE ENTIRE FAMILY, silently. lib/visits.ts
+    // takes pains to avoid exactly that lie on the write path; the read path must not
+    // reintroduce it. A real database error belongs in the 500 handler below, where it is
+    // logged and visible.
+    //
     // Year-scoped, because rollover wipes wishlists and suggestions. A lifetime total would
     // quietly fold last Christmas into this one's picture.
-    const summaries =
-      year === null
-        ? new Map()
-        : await getVisitSummaries(
-            people.map((person) => person.id),
-            year
-          );
+    const summaries = people.length
+      ? await getVisitSummaries(
+          people.map((person) => person.id),
+          await getActiveYear(groupId)
+        )
+      : new Map<string, VisitSummary>();
 
     // Zero and null, never undefined. Someone who has never opened their link is the single
     // most important row on this dashboard, so absence must serialise as a real 0.

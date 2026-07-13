@@ -110,6 +110,29 @@ it('records one visit per half hour, even when ten requests land at once', async
   expect(count).toBe(1);
 });
 
+// The rollover hole, closed by putting `year` in the unique key. Without it, a participant who
+// opens their wishlist in the same half-hour bucket in which they had already visited under
+// LAST year collides, recordVisit swallows it as an ordinary debounce hit, and their first
+// visit of the new season is silently lost - reporting them as "Never opened their link".
+//
+// Only a real database can show this, because it is the unique index doing the work.
+it('does not lose the first visit of a new year to last year\'s bucket', async () => {
+  // A fresh person, deliberately: Bob already has a current-bucket visit from the burst test
+  // above, which would make this pass for the wrong reason.
+  const dave = await prisma.person.create({
+    data: { groupId, name: 'Dave', personalLinkToken: 'tok-dave' },
+  });
+  const bucket = Math.floor(Date.now() / (30 * 60 * 1000));
+
+  // He was here in this very bucket, last season.
+  await prisma.visit.create({ data: { personId: dave.id, year: 2025, bucket } });
+
+  // Rollover happened. He opens his wishlist. This must land, not be eaten as a duplicate.
+  await recordVisit(dave.id, 2026);
+
+  expect(await prisma.visit.count({ where: { personId: dave.id, year: 2026, bucket } })).toBe(1);
+});
+
 // THE FULL WRITE PATH, end to end: the real person-data handler, the real getActiveYear, the
 // real Prisma client, a real database. The mocked suite can only prove recordVisit was CALLED
 // with the right arguments; nothing there proves a row actually lands, because the mock will

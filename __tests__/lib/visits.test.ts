@@ -55,11 +55,33 @@ describe('recordVisit', () => {
   });
 
   // The debounce, and the reason there is no findFirst: a second visit inside the same
-  // half hour collides on @@unique([personId, bucket]) and the DATABASE throws it away.
+  // half hour collides on @@unique([personId, year, bucket]) and the DATABASE throws it away.
   it('swallows the unique violation when they were already here this half hour', async () => {
     mockPrismaDb.visit.create.mockRejectedValue({ code: 'P2002' });
 
     await expect(recordVisit('p1', 2026)).resolves.toBeUndefined();
+  });
+
+  // The OTHER half of the debounce, and the half that was missing: once the window has
+  // passed, recordVisit must compute a DIFFERENT bucket, so the unique key lets the row
+  // through. Without this, every test here derives the bucket from VISIT_DEBOUNCE_MS and is
+  // therefore self-referential - nothing proved the number ever advances with the clock.
+  it('computes a new bucket once the window has passed, so the next visit lands', async () => {
+    jest.useFakeTimers().setSystemTime(new Date('2026-12-01T10:00:00Z'));
+    await recordVisit('p1', 2026);
+    const firstBucket = mockPrismaDb.visit.create.mock.calls[0][0].data.bucket;
+
+    // Same half hour: same bucket, so the DB would reject it as a duplicate.
+    jest.setSystemTime(new Date('2026-12-01T10:29:00Z'));
+    await recordVisit('p1', 2026);
+    expect(mockPrismaDb.visit.create.mock.calls[1][0].data.bucket).toBe(firstBucket);
+
+    // Past the boundary: a new bucket, so it is a new visit.
+    jest.setSystemTime(new Date('2026-12-01T10:31:00Z'));
+    await recordVisit('p1', 2026);
+    expect(mockPrismaDb.visit.create.mock.calls[2][0].data.bucket).toBe(firstBucket + 1);
+
+    jest.useRealTimers();
   });
 
   // The guarantee. A broken counter must never take down the wishlist page it is counting.

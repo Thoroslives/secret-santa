@@ -19,9 +19,19 @@ import { prisma } from "@/lib/db";
 // database up with a plain `cp`, which is only safe because there is no WAL sidecar, and
 // that backup is the only rollback the deploy has.
 //
-// The cost of a tumbling window rather than a sliding one: a refresh that straddles the
-// half-hour boundary counts twice. That is a good trade for atomicity, and it is the only
-// way this number is wrong.
+// BE HONEST ABOUT WHAT THIS COUNTS. The bucket is a TUMBLING window anchored on the epoch,
+// not a SLIDING one anchored on the person's last visit, and the difference is not only the
+// refresh case:
+//
+//   - Two loads either side of :00 or :30 count twice however close they are. 10:29 and 10:31
+//     is two visits, two minutes apart.
+//   - One continuous sitting from 10:50 to 11:40 lands in three buckets and counts as three.
+//
+// So the number means "half-hour buckets in which they opened the page", which is a good
+// proxy for sittings and a poor one for a long browse. It is biased upward, and most upward
+// for the engaged reader this feature most wants to notice. A sliding window would read
+// slightly truer, but it needs a read-then-write, which is neither atomic nor a single lock -
+// and on this database that trade is not worth a nicer number.
 export const VISIT_DEBOUNCE_MS = 30 * 60 * 1000;
 
 // "Recent" on the dashboard. Coarse on purpose: the admin is asking "are they still around",

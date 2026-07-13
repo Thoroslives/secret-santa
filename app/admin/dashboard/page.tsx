@@ -2193,9 +2193,15 @@ export default function AdminDashboard() {
           {activeGroupId && people.length > 0 && (
             <div className="mt-8 rounded-md border border-border bg-surface p-6 shadow-elev-1">
               <h2 className="mb-1 text-xl font-semibold text-ink-strong">Activity</h2>
-              <p className="mb-4 text-sm text-ink-muted">
-                Counting starts the day this went live, so everyone begins on zero.
-              </p>
+              {/* Only while the board is genuinely empty, so it retires itself rather than
+                  ageing into a confusing line once there is real data to look at. Without it,
+                  a wall of zeroes on day one reads as broken rather than as new. */}
+              {people.every((person) => person.visitCount === 0) && (
+                <p className="mb-4 text-sm text-ink-muted">
+                  Nobody has been counted yet. Visits are only recorded from the day this was
+                  added, so everyone starts on zero.
+                </p>
+              )}
               <div className="space-y-2">
                 {people.map((person) => {
                   // The API fills visitCount and lastVisitAt from the same row, so a null

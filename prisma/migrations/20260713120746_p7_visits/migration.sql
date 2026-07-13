@@ -9,4 +9,4 @@ CREATE TABLE "Visit" (
 );
 
 -- CreateIndex
-CREATE UNIQUE INDEX "Visit_personId_bucket_key" ON "Visit"("personId", "bucket");
+CREATE UNIQUE INDEX "Visit_personId_year_bucket_key" ON "Visit"("personId", "year", "bucket");

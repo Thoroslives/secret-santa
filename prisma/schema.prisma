@@ -179,5 +179,13 @@ model Visit {
   // which is why there is no separate index on createdAt: EXPLAIN QUERY PLAN confirms SQLite
   // picks this one, so another index would be write cost on the participant hot path for a
   // read that never uses it.
-  @@unique([personId, bucket])
+  //
+  // `year` is IN the key, and it has to be. Without it, a participant who opens their wishlist
+  // in the same half-hour bucket in which they had already visited under the LAST year would
+  // collide, and recordVisit would swallow it as an ordinary debounce hit - losing their first
+  // visit of the new season and reporting them as "Never opened their link" until they came
+  // back in a later bucket. Narrow (a 30-minute window straight after a rollover) but free to
+  // close, and it costs the debounce nothing: within one year the key is still one row per
+  // person per bucket.
+  @@unique([personId, year, bucket])
 }
