@@ -62,14 +62,22 @@ export async function middleware(request: NextRequest) {
     }
   }
 
-  // Check admin API routes (require admin session)
+  // Check admin API routes - admin only, on EVERY method including GET.
+  //
+  // There used to be a blanket GET exemption here ("allow GET if the user is logged
+  // in") whose comment claimed it was for "people and assignments". It was not: it
+  // applied to every route in the list above, so a logged-in PARTICIPANT passed
+  // straight through on GET /api/pins - and a ForcedPin row says "A draws B", which
+  // IS the draw. Nothing leaked only because each handler happened to self-defend
+  // with requireAdmin(); the perimeter itself was open, and the next GET added here
+  // by anyone who trusted this middleware would have leaked by default.
+  //
+  // Deleting it is safe: no participant-facing page fetches any of these five routes
+  // (participants read their own match via /api/auth/person-data, and their group via
+  // the exact-matched GET /api/groups/[id] below). __tests__/middleware.test.ts is the
+  // guard - it fails against the old exemption.
   for (const route of adminApiRoutes) {
     if (pathname.startsWith(route)) {
-      // Allow GET for people and assignments if user is logged in (participant or admin)
-      if (method === "GET" && (session.isLoggedIn || session.isAdmin)) {
-        return response;
-      }
-      // Write operations require admin
       if (!session.isAdmin) {
         return NextResponse.json({ error: "Admin authentication required" }, { status: 403 });
       }
