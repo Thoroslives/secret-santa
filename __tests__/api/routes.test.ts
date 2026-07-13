@@ -805,6 +805,12 @@ describe('POST /api/auth/email-link', () => {
 describe('GET /api/people', () => {
   beforeEach(() => {
     mockSession.isAdmin = true;
+    // The route now decorates each person with visit aggregates. getActiveYear is a bare
+    // jest.fn() at the top of this file whose first mockResolvedValue lives in the
+    // assignments describe, way below this one - without these two lines the route would
+    // get `undefined` back here and 500.
+    (getActiveYear as jest.Mock).mockResolvedValue(2026);
+    mockPrismaDb.visit.findMany.mockResolvedValue([]);
   });
 
   it('returns 400 when groupId is missing', async () => {
@@ -826,10 +832,65 @@ describe('GET /api/people', () => {
     const res = await getPeople(req);
     expect(res.status).toBe(200);
     const json = await res.json();
-    expect(json.people).toEqual(people);
+    // toMatchObject, not toEqual: the route now decorates each person with visit
+    // aggregates, so the payload is a superset of the rows Prisma returned.
+    expect(json.people).toMatchObject(people);
     expect(mockPrismaDb.person.findMany).toHaveBeenCalledWith(
       expect.objectContaining({ where: { groupId: 'group-1' } }),
     );
+  });
+
+  it('returns visit aggregates per person, and a real zero for someone who never showed up', async () => {
+    mockPrismaDb.person.findMany.mockResolvedValue([
+      { id: 'p-1', name: 'Alice', wishlistItems: [], _count: { wishlistItems: 0, suggestionsBy: 0 } },
+      { id: 'p-2', name: 'Bob', wishlistItems: [], _count: { wishlistItems: 0, suggestionsBy: 0 } },
+    ]);
+    const old = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+    const fresh = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000);
+    mockPrismaDb.visit.findMany.mockResolvedValue([
+      { personId: 'p-1', createdAt: old },
+      { personId: 'p-1', createdAt: fresh },
+    ]);
+
+    const res = await getPeople(makeGetRequest('http://localhost:3000/api/people?groupId=group-1'));
+    const json = await res.json();
+
+    expect(json.people[0]).toMatchObject({
+      id: 'p-1',
+      visitCount: 2,
+      lastVisitAt: fresh.toISOString(),
+      recentVisits: 1, // only the 2-day-old visit is inside the 7-day window
+    });
+    // Bob has never opened his link. He must come back as real zeroes, not undefined,
+    // because the dashboard's nudge list keys off exactly this.
+    expect(json.people[1]).toMatchObject({
+      id: 'p-2',
+      visitCount: 0,
+      lastVisitAt: null,
+      recentVisits: 0,
+    });
+  });
+
+  it('scopes visits to the active year', async () => {
+    mockPrismaDb.person.findMany.mockResolvedValue([
+      { id: 'p-1', name: 'Alice', wishlistItems: [], _count: { wishlistItems: 0, suggestionsBy: 0 } },
+    ]);
+
+    await getPeople(makeGetRequest('http://localhost:3000/api/people?groupId=group-1'));
+
+    expect(mockPrismaDb.visit.findMany.mock.calls[0][0].where).toMatchObject({ year: 2026 });
+  });
+
+  // getActiveYear THROWS when the group is gone. A second admin tab still holding a draw
+  // that the Danger zone just deleted must not turn this route from a 200 into a 500.
+  it('still returns 200 when the group has been deleted underneath us', async () => {
+    (getActiveYear as jest.Mock).mockRejectedValue(new Error('Group group-1 not found'));
+    mockPrismaDb.person.findMany.mockResolvedValue([]);
+
+    const res = await getPeople(makeGetRequest('http://localhost:3000/api/people?groupId=group-1'));
+
+    expect(res.status).toBe(200);
+    expect((await res.json()).people).toEqual([]);
   });
 
   it('forbids a participant listing people (would leak durable login tokens)', async () => {

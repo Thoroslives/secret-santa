@@ -3,6 +3,7 @@ import { prisma } from "@/lib/db";
 import { generatePersonalLinkToken, isValidEmail, normalizeEmail } from "@/lib/utils";
 import { getSession } from "@/lib/session";
 import { findEmailHolders, linkAcknowledged } from "@/lib/people";
+import { getActiveYear } from "@/lib/rounds";
 
 // GET all people for a group
 export async function GET(request: NextRequest) {
@@ -36,7 +37,53 @@ export async function GET(request: NextRequest) {
       orderBy: { createdAt: "desc" },
     });
 
-    return NextResponse.json({ people });
+    // getActiveYear THROWS when the group is gone. Today this route answers 200 + [] for a
+    // stale groupId (a second admin tab still holding a draw the Danger zone just deleted);
+    // letting it throw would turn that into a 500 and silently blank the roster.
+    let year: number | null = null;
+    try {
+      year = await getActiveYear(groupId);
+    } catch {
+      year = null;
+    }
+
+    // One query, not two aggregates. At roughly a thousand rows a season there is nothing
+    // to avoid pulling, and reading the rows lets all three numbers fall out of a single
+    // pass - which also means one fewer lock taken against a single-file SQLite database.
+    //
+    // Year-scoped, because rollover wipes wishlists and suggestions. A lifetime total would
+    // quietly fold last Christmas into this one's picture.
+    const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+    const visits =
+      year === null
+        ? []
+        : await prisma.visit.findMany({
+            where: { personId: { in: people.map((p) => p.id) }, year },
+            select: { personId: true, createdAt: true },
+          });
+
+    const agg = new Map<string, { count: number; last: Date | null; recent: number }>();
+    for (const visit of visits) {
+      const a = agg.get(visit.personId) ?? { count: 0, last: null, recent: 0 };
+      a.count += 1;
+      if (!a.last || visit.createdAt > a.last) a.last = visit.createdAt;
+      if (visit.createdAt > sevenDaysAgo) a.recent += 1;
+      agg.set(visit.personId, a);
+    }
+
+    // Zero, never undefined. Someone who has never opened their link is the single most
+    // important row on this dashboard, so they must serialise as a real 0.
+    const withVisits = people.map((person) => {
+      const a = agg.get(person.id);
+      return {
+        ...person,
+        visitCount: a?.count ?? 0,
+        lastVisitAt: a?.last ?? null,
+        recentVisits: a?.recent ?? 0,
+      };
+    });
+
+    return NextResponse.json({ people: withVisits });
   } catch (error) {
     console.error("Error fetching people:", error);
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
